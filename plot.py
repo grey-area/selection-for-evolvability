@@ -47,7 +47,7 @@ for index in order:
 colours = {'fitness': 'lightgreen', 'point': 'tan', 'kalman': 'pink', 'particle': 'red'}
 
 for key in ordered_params_lists.keys():
-    num_to_show = 8
+    num_to_show = 22
 
     box = plt.boxplot(ordered_data_lists[key][:num_to_show], notch=True, patch_artist=True)
 

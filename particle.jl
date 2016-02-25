@@ -6,9 +6,9 @@ type Particle
 end
 
 function init_particle(num_particles::Int64 = 1000)
-    x1s = randn(num_particles) * √10.0 + 2.0
-    x2s = randn(num_particles) * √10.0 + 2.0
-    weights = ones(num_particles) / Float64(num_particles)
+    x1s = 10.0 + 10.0 * randn(num_particles)
+    x2s = 10.0 + 10.0 * randn(num_particles)
+    weights = log(ones(num_particles) / Float64(num_particles))
     particle = Particle(num_particles, x1s, x2s, weights)
 
     return particle
@@ -22,37 +22,53 @@ function particle_pred(particle::Particle)
     particle.x2s[particle.x2s .< 0] = 0.0001
 end
 
+# Calculate the log of the sum of probabilities given the log probabilities, while avoiding overflow
+function log_sum_exp_log_probs(log_probs::Array{Float64, 1})
+    max_log_prob = maximum(log_probs)
+    return max_log_prob + log(sum(exp(log_probs - max_log_prob)))
+end
 
+# Normalize a list of log probabilities so the probabilities sum to 1
+function normalize_weights(weights::Array{Float64,1})
+    return weights - log_sum_exp_log_probs(weights)
+end
+
+# Given a pair of observations, add log likelihoods (up to additive constant) to the particle weights
 function particle_update(particle::Particle, obs::Array{Float64,1}, sample_size::Int64, evolvability_type::ASCIIString)
-
     if evolvability_type == "variance"
         k = 0.5 * (sample_size - 1.0)
         theta1 = 2.0 * particle.x1s / Float64(sample_size - 1)
-        theta2 = 2.0 * particle.x2s / Float64(sample_size - 1)
         theta1[theta1 .< 0] = 0.0000001
+        theta2 = 2.0 * particle.x2s / Float64(sample_size - 1)
         theta2[theta2 .< 0] = 0.0000001
-        # TODO treat NaNs as zeros?
-        particle.weights .*= exp(- obs[1] ./ theta1) .* obs[1] ^ (k-1) .* theta1 .^ (-k)
-        particle.weights /= sum(particle.weights)
-        particle.weights .*= exp(- obs[2] ./ theta2) .* obs[2] ^ (k-1) .* theta2 .^ (-k)
-        #particle.weights .*= exp(-(obs[1] * obs[2]) ./ (theta1 .* theta2)) .* (obs[1] * obs[2])^(k-1) .* (theta1 .* theta2).^(-k)
-        particle.weights /= sum(particle.weights)
+        particle.weights += -obs[1] ./theta1 + (-k) * log(theta1)
+        particle.weights += -obs[2] ./theta2 + (-k) * log(theta2)
+        particle.weights = normalize_weights(particle.weights)
+    elseif evolvability_type == "std"
+        particle.weights += -(obs[1] ./ particle.x1s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x1s)
+        particle.weights += -(obs[2] ./ particle.x2s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x2s)
+        particle.weights = normalize_weights(particle.weights)
     else
-        sigma = (0.125 + 1.29 * (sample_size-1)^(-0.73)) .* particle.x1s
-        particle.weights .*= (1./(√(2pi) * sigma)) .* exp(-0.5 * ((particle.x1s-obs[1]) ./ sigma).^2 )
-        sigma = (0.125 + 1.29 * (sample_size-1)^(-0.73)) .* particle.x2s
-        particle.weights /= sum(particle.weights)
-        particle.weights .*= (1./(√(2pi) * sigma)) .* exp(-0.5 * ((particle.x2s-obs[2]) ./ sigma).^2 )
-        particle.weights /= sum(particle.weights)
+        sigma1 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x1s
+        sigma2 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x2s
+
+        particle.weights += -(obs[1] - particle.x1s).^2 ./ (2 * sigma1.^2) - log(particle.x1s)
+        particle.weights += -(obs[2] - particle.x2s).^2 ./ (2 * sigma2.^2) - log(particle.x2s)
+
+        particle.weights = normalize_weights(particle.weights)
     end
 end
 
 function particle_resample(particle::Particle)
-    s_eff = 1.0 / sum(particle.weights .^ 2)
-    if s_eff < 0.5 * particle.num_particles
+
+    #s_eff = 1.0 / sum(particle.weights .^ 2)
+    # test if s_eff < 0.5 * num particles
+    # below is equivalent for log probabilities
+    if log_sum_exp_log_probs(2*particle.weights) > log(2) - log(particle.num_particles)
+        #println("Resampling!")
         positions = (collect(0:(particle.num_particles-1)) + rand()) / particle.num_particles
         indices = zeros(Int64, particle.num_particles)
-        cumulative_sums = cumsum(particle.weights)
+        cumulative_sums = cumsum(exp(particle.weights))
         cumulative_sums[end]  = 1.0
         i, j = 1, 1
         while i <= particle.num_particles
@@ -65,7 +81,7 @@ function particle_resample(particle::Particle)
         end
         particle.x1s = getindex(particle.x1s, indices)
         particle.x2s = getindex(particle.x2s, indices)
-        particle.weights = ones(particle.num_particles) / particle.num_particles
+        particle.weights = log(ones(particle.num_particles) / particle.num_particles)
     end
 end
 

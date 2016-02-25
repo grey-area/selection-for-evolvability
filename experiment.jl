@@ -29,8 +29,9 @@ end
 
 function mutated_copy(p::Individual)
 
-    f2 = p.f+ randn() * √p.e
-    e2 = p.e + randn()
+    q = 1.0
+    f2 = p.f+ randn() * p.e
+    e2 = p.e + randn() * sqrt(q)
     if e2 < 0
         e2 = 0.0001
     end
@@ -45,6 +46,8 @@ function observe_evolvability(parent_fitnesses::Array{Float64,1}, fitnesses::Arr
     evolvability_observations = zeros(2)
     if evolvability_type == "variance"
         evolvability_observations = squeeze(var(fitnesses, 2), 2)
+    elseif evolvability_type == "std"
+        evolvability_observations = squeeze(std(fitnesses, 2), 2)
     else
         fitness_diffs = fitnesses - repmat(parent_fitnesses, 1, size(fitnesses)[2])
         evolvability_observations = squeeze(maximum(fitness_diffs,2),2)
@@ -132,7 +135,7 @@ function do_trial(job_id::Int64, selection_type::ASCIIString = "kalman", fitness
             particle_pred(particle)
             particle_update(particle, evolvability_observations, N, evolvability_type)
             particle_resample(particle)
-            frac = mean(particle.x2s .> particle.x1s)
+            frac = sum((particle.x2s .> particle.x1s) .* exp(particle.weights))
             if frac > prob_threshold || 1-frac > prob_threshold
                 selected_for_evolvability = true
                 max_index = round(Int64, frac) + 1
@@ -180,10 +183,10 @@ end
 #do_experiment(10, "kalman", 30000, 2, "variance")
 
 function do_experiments(job_id::Int64, trials::Int64 = 1)
-    fitness_evalss = [10000, 30000]
+    fitness_evalss = [5000, 10000]
     Ns = [2, 20]
     selection_types = ["fitness", "point", "kalman", "particle"]
-    evolvability_types = ["variance", "max"]
+    evolvability_types = ["std", "maximum"]
     heuristics = [false, true]
     Ps = [0.6, 0.75, 0.9]
     N2s = [1, 10]
@@ -221,6 +224,7 @@ function do_experiments(job_id::Int64, trials::Int64 = 1)
     end
 
 end
+
 
 if size(ARGS)[1] > 1
     do_experiments(parse(Int64, ARGS[1]), parse(Int64, ARGS[2]))
