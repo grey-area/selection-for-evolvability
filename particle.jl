@@ -34,28 +34,34 @@ function normalize_weights(weights::Array{Float64,1})
 end
 
 # Given a pair of observations, add log likelihoods (up to additive constant) to the particle weights
-function particle_update(particle::Particle, obs::Array{Float64,1}, sample_size::Int64, evolvability_type::ASCIIString)
-    if evolvability_type == "variance"
-        k = 0.5 * (sample_size - 1.0)
-        theta1 = 2.0 * particle.x1s / Float64(sample_size - 1)
-        theta1[theta1 .< 0] = 0.0000001
-        theta2 = 2.0 * particle.x2s / Float64(sample_size - 1)
-        theta2[theta2 .< 0] = 0.0000001
-        particle.weights += -obs[1] ./theta1 + (-k) * log(theta1)
-        particle.weights += -obs[2] ./theta2 + (-k) * log(theta2)
-        particle.weights = normalize_weights(particle.weights)
-    elseif evolvability_type == "std"
-        particle.weights += -(obs[1] ./ particle.x1s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x1s)
-        particle.weights += -(obs[2] ./ particle.x2s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x2s)
-        particle.weights = normalize_weights(particle.weights)
-    else
-        sigma1 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x1s
-        sigma2 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x2s
+function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size::Int64, evolvability_type::ASCIIString)
 
-        particle.weights += -(obs[1] - particle.x1s).^2 ./ (2 * sigma1.^2) - log(particle.x1s)
-        particle.weights += -(obs[2] - particle.x2s).^2 ./ (2 * sigma2.^2) - log(particle.x2s)
+    for row in 1:size(obs1)[2]
+        obs = obs1[:, row]
 
-        particle.weights = normalize_weights(particle.weights)
+        if evolvability_type == "variance"
+            k = 0.5 * (sample_size - 1.0)
+            theta1 = 2.0 * particle.x1s / Float64(sample_size - 1)
+            theta1[theta1 .< 0] = 0.0000001
+            theta2 = 2.0 * particle.x2s / Float64(sample_size - 1)
+            theta2[theta2 .< 0] = 0.0000001
+            particle.weights += -obs[1] ./theta1 + (-k) * log(theta1)
+            particle.weights += -obs[2] ./theta2 + (-k) * log(theta2)
+            particle.weights = normalize_weights(particle.weights)
+        elseif evolvability_type == "std"
+            particle.weights += -(obs[1] ./ particle.x1s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x1s)
+            particle.weights += -(obs[2] ./ particle.x2s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x2s)
+            particle.weights = normalize_weights(particle.weights)
+        else
+            sigma1 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x1s
+            sigma2 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x2s
+
+            particle.weights += -(obs[1] - particle.x1s).^2 ./ (2 * sigma1.^2) - log(particle.x1s)
+            particle.weights += -(obs[2] - particle.x2s).^2 ./ (2 * sigma2.^2) - log(particle.x2s)
+
+            particle.weights = normalize_weights(particle.weights)
+        end
+
     end
 end
 

@@ -7,7 +7,12 @@ function init_kalman()
     return Kalman([10.0, 10.0], [100.0 0.0; 0.0 100.0])
 end
 
-function kalman_obs(kalman::Kalman, obs::Array{Float64,1}, n::Int64, evolvability_type::ASCIIString)
+function kalman_pred(kalman::Kalman)
+    q = 1.0
+    kalman.ps += eye(2) * q
+end
+
+function kalman_update(kalman::Kalman, obs::Array{Float64,2}, n::Int64, evolvability_type::ASCIIString)
 
     local r::Array{Float64,1}
 
@@ -20,14 +25,16 @@ function kalman_obs(kalman::Kalman, obs::Array{Float64,1}, n::Int64, evolvabilit
         r = (0.125 + 1.29 * Float64(n-1)^(-0.73))^2 * kalman.xs.^2
     end
 
-    q = 1.0
-    p1 = kalman.ps + eye(2) * q
-    y = obs - kalman.xs
-    s = p1 + diagm(r)
-    k = p1 * inv(s)
-    kalman.xs += k * y
-    kalman.xs[kalman.xs .< 0] = 0.0001
-    kalman.ps = (eye(2) - k) * p1
+    for row in 1:size(obs)[2]
+        y = obs[:, row] - kalman.xs
+        s = kalman.ps + diagm(r)
+        k = kalman.ps * inv(s)
+        kalman.xs += k * y
+        if evolvability_type != "maximum"
+            kalman.xs[kalman.xs .< 0] = 0.0001
+        end
+        kalman.ps = (eye(2) - k) * kalman.ps
+    end
 end
 
 function kalman_duplicate(kalman::Kalman, index::Int64)
