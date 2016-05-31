@@ -7,8 +7,11 @@ function init_kalman()
     return Kalman([10.0, 10.0], [100.0 0.0; 0.0 100.0])
 end
 
-function kalman_pred(kalman::Kalman)
+function kalman_pred(kalman::Kalman, ML_q::Float64, q_inference_type::Int64)
     q = 1.0
+    if q_inference_type == 1
+        q = ML_q
+    end
     kalman.ps += eye(2) * q
 end
 

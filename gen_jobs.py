@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# instances, trials_per_instance, fitness_function_name
+
 import sys, os
 
 trials = 1

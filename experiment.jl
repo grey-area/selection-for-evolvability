@@ -28,10 +28,17 @@ function observe_evolvability(parent_fitnesses::Array{Float64,1}, fitnesses::Arr
     return evolvability_observations
 end
 
-function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(job_id::Int64, parent::T, fitness_function::FitnessFunction, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Bool = false, prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, max_n::Int64 = -1)
+function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(job_id::Int64, parent::T, fitness_function::FitnessFunction, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Int64 = 1, prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, max_n::Int64 = -1, q_inference_type::Int64 = 0, thompson::Bool = false)
 
     parents::Array{T, 1}
     parents = T[mutated_copy(parent) for i in 1:2]
+
+    # For maximum likelihood q inference
+    prev_prediction1 = Inf
+    prev_prediction2 = Inf
+    sum_of_square_diffs_of_predictions = 0.0
+    number_of_diffs = 0
+    ML_q = 1.
 
     sample_size = N
     if max_n != -1 && evolvability_type == "maximum"
@@ -52,8 +59,12 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
 
     generation = 1
     current_fitness_evals = 0
+    fitness_evals_since_selection = 0
+    fitness_evals_at_selection = 0
 
     results = Float64[]
+
+    frac = 0.5
 
     while current_fitness_evals < fitness_evals
 
@@ -68,19 +79,18 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
             offspring_fitnesses[i, j] = evaluate_fitness(new_individual, fitness_function)
         end
 
-        maintain_two_populations = false
-        if selection_type == "point" && (!heuristic || current_fitness_evals < div(fitness_evals, 2))
-            maintain_two_populations = true
-        elseif selection_type == "kalman" && (!heuristic || current_fitness_evals < div(fitness_evals, 2))
-            maintain_two_populations = true
-        elseif selection_type == "particle" && (!heuristic || current_fitness_evals < div(fitness_evals, 2))
+        if selection_type == "fitness" || (heuristic == 1 && current_fitness_evals / fitness_evals > 0.5) || (heuristic == 2 && fitness_evals_since_selection / (fitness_evals - fitness_evals_at_selection) > 0.1)
+            maintain_two_populations = false
+        else
             maintain_two_populations = true
         end
 
-        if maintain_two_populations
+        if maintain_two_populations && !thompson
             current_fitness_evals += 2N
+            fitness_evals_since_selection += 2N
         else
             current_fitness_evals += N
+            fitness_evals_since_selection += N
         end
 
         evolvability_observations = observe_evolvability(parent_fitnesses, offspring_fitnesses, evolvability_type, N, max_n)::Array{Float64,2}
@@ -90,14 +100,32 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
         # Select for fitness
         max_indices = map(x-> mod(x, 2) == 0 ? div(x, 2) : div(x+1, 2), squeeze(findmax(offspring_fitnesses, 2)[2], 2))
 
-        parents = [offspring_populations[i, max_indices[i]]::T for i in 1:2 ]
-        parent_fitnesses = [offspring_fitnesses[i, max_indices[i]]::Float64 for i in 1:2]
+        thompson_i = 0
+        if thompson
+            if rand() < frac
+                thompson_i = 2
+            else
+                thompson_i = 1
+            end
+        end
+
+        if !thompson
+            parents = [offspring_populations[i, max_indices[i]]::T for i in 1:2 ]
+            parent_fitnesses = [offspring_fitnesses[i, max_indices[i]]::Float64 for i in 1:2]
+        else
+            parents[thompson_i] = offspring_populations[thompson_i, max_indices[thompson_i]]
+            parent_fitnesses[thompson_i] = offspring_fitnesses[thompson_i, max_indices[thompson_i]]
+        end
+
 
         if current_fitness_evals > fitness_evals
             break
         end
 
         selected_for_evolvability = false
+
+        prediction1 = Inf
+        prediction2 = Inf
 
         local max_index::Int64
         if selection_type == "point" && mod(generation, M) == 0 && maintain_two_populations
@@ -113,12 +141,15 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
             evolvability_observations = squeeze(observe_evolvability(parent_fitnesses, evolvability_selection_fitnesses, evolvability_type, N2, -1)::Array{Float64,2}, 2)
 
             current_fitness_evals += 2N2
+            fitness_evals_since_selection += 2N2
             selected_for_evolvability = true
             max_index = findmax(evolvability_observations)[2]
 
         elseif selection_type == "kalman" && maintain_two_populations
-            kalman_pred(kalman)
+            kalman_pred(kalman, ML_q, q_inference_type)
             kalman_update(kalman, evolvability_observations, sample_size, evolvability_type)
+            prediction1 = kalman.xs[1]
+            prediction2 = kalman.xs[2]
 
             # frac our belief that x2 > x1
             c1 = kalman.ps[1,1]; c2 = kalman.ps[1,2]; c3 = kalman.ps[2,2]
@@ -136,20 +167,41 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
                 kalman_duplicate(kalman, max_index)
             end
         elseif selection_type == "particle" && maintain_two_populations
-            particle_pred(particle)
-            particle_update(particle, evolvability_observations, sample_size, evolvability_type)
+            particle_pred(particle, ML_q, q_inference_type, thompson_i)
+            particle_update(particle, evolvability_observations, sample_size, evolvability_type, thompson_i)
             particle_resample(particle)
+            prediction1 = sum(particle.x1s .* exp(particle.weights))
+            prediction2 = sum(particle.x2s .* exp(particle.weights))
+
             frac = sum((particle.x2s .> particle.x1s) .* exp(particle.weights))
             if frac > prob_threshold || 1-frac > prob_threshold
                 selected_for_evolvability = true
                 max_index = round(Int64, frac) + 1
+                frac = 0.5
                 particle_duplicate(particle, max_index)
             end
+        end
+
+        if prediction1 != Inf
+            if prev_prediction1 != Inf
+                sum_of_square_diffs_of_predictions += (prediction1 - prev_prediction1)^2
+                sum_of_square_diffs_of_predictions += (prediction2 - prev_prediction2)^2
+                number_of_diffs += 2
+                ML_q = sum_of_square_diffs_of_predictions / number_of_diffs
+            end
+            prev_prediction1 = prediction1
+            prev_prediction2 = prediction2
         end
 
         if selected_for_evolvability
             parent = parents[max_index]
             parents = [mutated_copy(parent) for i in 1:2]
+            prediction1 = Inf
+            prediction2 = Inf
+            prev_prediction1 = Inf
+            prev_prediction2 = Inf
+            fitness_evals_since_selection = 0
+            fitness_evals_at_selection = current_fitness_evals
         end
 
         generation += 1
@@ -163,7 +215,7 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
     return mean(parent_fitnesses[1])
 end
 
-function do_experiment(job_id::Int64, fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Bool = false, P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, max_n::Int64 = -1)
+function do_experiment(job_id::Int64, fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Int64 = 1, P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, max_n::Int64 = -1, q_inference_type::Int64 = 0, thompson::Bool = false)
     fitness_results = zeros(trials)
 
     for trial in 1:trials
@@ -181,12 +233,12 @@ function do_experiment(job_id::Int64, fitness_function_name::AbstractString, tri
             fitness_function = LipsonFitnessFunction()
         end
 
-        fitness_results[trial] = do_trial(job_id, parent, fitness_function, selection_type, fitness_evals, N, evolvability_type, heuristic, P, N2, M, max_n)
+        fitness_results[trial] = do_trial(job_id, parent, fitness_function, selection_type, fitness_evals, N, evolvability_type, heuristic, P, N2, M, max_n, q_inference_type, thompson)
     end
 
     # Write results to file here
     filename = @sprintf("data/%d.dat", job_id)
-    header = @sprintf("fitness_evals-%d+N-%d+evolvability_type-%s+problem-%s+selection_type-%s+N2-%d+M-%d+heuristic-%d+p-%.2f+max_n-%d\n", fitness_evals, N, evolvability_type, fitness_function_name,selection_type, N2,M,heuristic,P, max_n)
+    header = @sprintf("fitness_evals-%d+N-%d+evolvability_type-%s+problem-%s+selection_type-%s+N2-%d+M-%d+heuristic-%d+p-%.2f+max_n-%d+q-%d+th-%d\n", fitness_evals, N, evolvability_type, fitness_function_name,selection_type, N2,M,heuristic,P, max_n, q_inference_type, thompson)
     f = open(filename, "a")
     write(f, header)
     for (datum_i, datum) in enumerate(fitness_results)
@@ -209,7 +261,7 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
     Ns = [2, 50] # 100?
     selection_types = ["fitness", "kalman", "particle"] # point
     evolvability_types = ["std", "maximum"]
-    heuristics = [true] # false
+    heuristics = [1, 2] # 0, 1, 2
     Ps = [0.6, 0.9]
     N2s = [1, 10]
     Ms = [5, 50]
@@ -224,7 +276,7 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
             for N in Ns
                 for selection_type in selection_types
                     if selection_type == "fitness"
-                        do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, false, 0.0, 0, 0, -1)
+                        do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, 0, 0.0, 0, 0, -1, 0)
                     else
                         for heuristic in heuristics
                             for max_n in max_ns
@@ -232,12 +284,23 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
                                     for N2 in N2s
                                         N2_adj = N * N2
                                         for M in Ms
-                                            do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, heuristic, 0.7, N2_adj, M, max_n)
+                                            do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, heuristic, 0.7, N2_adj, M, max_n, 0)
                                         end
                                     end
                                 else
                                     for P in Ps
-                                        do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, heuristic, P, 0, 0, max_n)
+                                        if selection_type == "kalman"
+                                            q_inference_types = [0, 1] # 0, 1
+                                            thompsons = [false]
+                                        else
+                                            q_inference_types = [0, 1, 2] # 0, 1, 2
+                                            thompsons = [false, true]
+                                        end
+                                        for q_inference_type in q_inference_types
+                                            for thompson in thompsons
+                                                do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, heuristic, P, 0, 0, max_n, q_inference_type, thompson)
+                                            end
+                                        end
                                     end
                                 end
                             end

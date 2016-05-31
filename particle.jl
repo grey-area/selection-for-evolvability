@@ -2,22 +2,35 @@ type Particle
     num_particles::Int64
     x1s::Array{Float64,1}
     x2s::Array{Float64,1}
+    qs::Array{Float64, 1}
     weights::Array{Float64,1}
 end
 
 function init_particle(num_particles::Int64 = 1000)
     x1s = 10.0 + 10.0 * randn(num_particles)
     x2s = 10.0 + 10.0 * randn(num_particles)
+    qs = 5.0 * randexp(num_particles)
     weights = log(ones(num_particles) / Float64(num_particles))
-    particle = Particle(num_particles, x1s, x2s, weights)
+    particle = Particle(num_particles, x1s, x2s, qs, weights)
 
     return particle
-end
 
-function particle_pred(particle::Particle)
+function particle_pred(particle::Particle, ML_q::Float64, q_inference_type::Int64, thompson_i::Int64)
     q = 1.0
-    particle.x1s += randn(particle.num_particles) * √q
-    particle.x2s += randn(particle.num_particles) * √q
+    if q_inference_type == 1
+        q = ML_q
+    end
+
+    if q_inference_type != 2
+        particle.x1s += randn(particle.num_particles) * √q
+        particle.x2s += randn(particle.num_particles) * √q
+    else
+        particle.x1s += randn(particle.num_particles) .* √particle.qs
+        particle.x2s += randn(particle.num_particles) .* √particle.qs
+        particle.qs += randn(particle.num_particles) * 0.05
+        particle.qs[particle.qs .< 0] = 0.0001
+    end
+
     particle.x1s[particle.x1s .< 0] = 0.0001
     particle.x2s[particle.x2s .< 0] = 0.0001
 end
@@ -34,7 +47,7 @@ function normalize_weights(weights::Array{Float64,1})
 end
 
 # Given a pair of observations, add log likelihoods (up to additive constant) to the particle weights
-function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size::Int64, evolvability_type::ASCIIString)
+function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size::Int64, evolvability_type::ASCIIString, thompson_i::Int64)
 
     for row in 1:size(obs1)[2]
         obs = obs1[:, row]
@@ -45,19 +58,31 @@ function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size
             theta1[theta1 .< 0] = 0.0000001
             theta2 = 2.0 * particle.x2s / Float64(sample_size - 1)
             theta2[theta2 .< 0] = 0.0000001
-            particle.weights += -obs[1] ./theta1 + (-k) * log(theta1)
-            particle.weights += -obs[2] ./theta2 + (-k) * log(theta2)
+            if thompson_i == 0 || thompson_i == 1
+                particle.weights += -obs[1] ./theta1 + (-k) * log(theta1)
+            end
+            if thompson_i == 0 || thompson_i == 2
+                particle.weights += -obs[2] ./theta2 + (-k) * log(theta2)
+            end
             particle.weights = normalize_weights(particle.weights)
         elseif evolvability_type == "std"
-            particle.weights += -(obs[1] ./ particle.x1s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x1s)
-            particle.weights += -(obs[2] ./ particle.x2s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x2s)
+            if thompson_i == 0 || thompson_i == 1
+                particle.weights += -(obs[1] ./ particle.x1s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x1s)
+            end
+            if thompson_i == 0 || thompson_i == 2
+                particle.weights += -(obs[2] ./ particle.x2s).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.x2s)
+            end
             particle.weights = normalize_weights(particle.weights)
         else
             sigma1 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x1s
             sigma2 = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.x2s
 
-            particle.weights += -(obs[1] - particle.x1s).^2 ./ (2 * sigma1.^2) - log(particle.x1s)
-            particle.weights += -(obs[2] - particle.x2s).^2 ./ (2 * sigma2.^2) - log(particle.x2s)
+            if thompson_i == 0 || thompson_i == 1
+                particle.weights += -(obs[1] - particle.x1s).^2 ./ (2 * sigma1.^2) - log(particle.x1s)
+            end
+            if thompson_i == 0 || thompson_i == 2
+                particle.weights += -(obs[2] - particle.x2s).^2 ./ (2 * sigma2.^2) - log(particle.x2s)
+            end
 
             particle.weights = normalize_weights(particle.weights)
         end
@@ -87,6 +112,7 @@ function particle_resample(particle::Particle)
         end
         particle.x1s = getindex(particle.x1s, indices)
         particle.x2s = getindex(particle.x2s, indices)
+        particle.qs = getindex(particle.qs, indices)
         particle.weights = log(ones(particle.num_particles) / particle.num_particles)
     end
 end
