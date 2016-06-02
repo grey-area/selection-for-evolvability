@@ -1,10 +1,11 @@
 type Kalman
     xs::Array{Float64,1}
     ps::Array{Float64,2}
+    K::Int64
 end
 
-function init_kalman()
-    return Kalman([10.0, 10.0], [100.0 0.0; 0.0 100.0])
+function init_kalman(K::Int64 = 2)
+    return Kalman([10.0 for i in 1:K], eye(K) * 100.0, K)
 end
 
 function kalman_pred(kalman::Kalman, ML_q::Float64, q_inference_type::Int64)
@@ -12,7 +13,7 @@ function kalman_pred(kalman::Kalman, ML_q::Float64, q_inference_type::Int64)
     if q_inference_type == 1
         q = ML_q
     end
-    kalman.ps += eye(2) * q
+    kalman.ps += eye(kalman.K) * q
 end
 
 function kalman_update(kalman::Kalman, obs::Array{Float64,2}, n::Int64, evolvability_type::ASCIIString)
@@ -36,11 +37,11 @@ function kalman_update(kalman::Kalman, obs::Array{Float64,2}, n::Int64, evolvabi
         if evolvability_type != "maximum"
             kalman.xs[kalman.xs .< 0] = 0.0001
         end
-        kalman.ps = (eye(2) - k) * kalman.ps
+        kalman.ps = (eye(kalman.K) - k) * kalman.ps
     end
 end
 
 function kalman_duplicate(kalman::Kalman, index::Int64)
-    kalman.xs = repmat([kalman.xs[index]], 2)
-    kalman.ps = ones(2,2) * kalman.ps[index, index]
+    kalman.xs = repmat([kalman.xs[index]], kalman.K)
+    kalman.ps = ones(kalman.K, kalman.K) * kalman.ps[index, index]
 end
