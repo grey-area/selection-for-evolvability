@@ -266,10 +266,10 @@ end
 function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name::AbstractString = "simple")
     fitness_evalss = [5000, 10000] # 5000, 10000?
     Ns = [2, 50] # 100?
-    selection_types = ["fitness", "kalman", "particle"] # point
+    selection_types = ["fitness", "kalman", "particle"] # point, fitness, kalman
     evolvability_types = ["std", "maximum"]
     heuristics = [1, 2] # 0, 1, 2
-    Ps = [0.6, 0.9]
+    Ps = [0.6, 0.9] # 0.9
     N2s = [1, 10]
     Ms = [5, 50]
     max_ns = [2, -1]

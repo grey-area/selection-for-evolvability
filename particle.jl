@@ -14,6 +14,7 @@ function init_particle(num_particles::Int64 = 1000, K::Int64 = 2)
     return particle
 end
 
+# TODO use the thompson_i info
 function particle_pred(particle::Particle, ML_q::Float64, q_inference_type::Int64, thompson_i::Int64)
     q = 1.0
     if q_inference_type == 1
@@ -54,7 +55,7 @@ function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size
             thetas[thetas .< 0] = 0.0000001
 
             if thompson_i == 0
-                particle.weights += squeeze(-sum(obs ./ thetas +(-k) * log(thetas), 1), 1)
+                particle.weights += squeeze(sum(-obs ./ thetas +(-k) * log(thetas), 1), 1)
             else
                 particle.weights += squeeze(-obs[thompson_i] ./ thetas[thompson_i, :] +(-k) * log(thetas[thompson_i, :]), 1)
             end
@@ -63,7 +64,7 @@ function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size
 
         elseif evolvability_type == "std"
             if thompson_i == 0
-                particle.weights += squeeze(-sum((obs ./ particle.xs).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs), 1), 1)
+                particle.weights += squeeze(sum(-(obs ./ particle.xs).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs), 1), 1)
             else
                 particle.weights += squeeze(-(obs[thompson_i] ./ particle.xs[thompson_i, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[thompson_i, :]), 1)
             end
@@ -73,7 +74,7 @@ function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size
             sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs
 
             if thompson_i == 0
-                particle.weights += squeeze(-sum((obs .- particle.xs) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs), 1), 1)
+                particle.weights += squeeze(sum(-(obs .- particle.xs) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs), 1), 1)
             else
                 particle.weights += squeeze(-(obs[thompson_i] - particle.xs[thompson_i, :]) .^ 2 ./ (2 * sigmas[thompson_i, :] .^ 2) - log(particle.xs[thompson_i, :]), 1)
             end
