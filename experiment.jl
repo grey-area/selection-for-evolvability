@@ -146,15 +146,18 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
             kalman_update(kalman, evolvability_observations, sample_size, evolvability_type)
             predictions = kalman.xs
 
+            #=
             # frac our belief that x2 > x1
-            #=c1 = kalman.ps[1,1]; c2 = kalman.ps[1,2]; c3 = kalman.ps[2,2]
+            c1 = kalman.ps[1,1]; c2 = kalman.ps[1,2]; c3 = kalman.ps[2,2]
             denominator_term = c1 - 2c2 + c3
             if denominator_term < 0.0
                 denominator_term = 0.0
             end
             denominator = √(2.0 * denominator_term)
             numerator = kalman.xs[2] - kalman.xs[1]
-            frac = 0.5 * (1.0 + erf(numerator / denominator))=#
+            frac = 0.5 * (1.0 + erf(numerator / denominator))
+            =#
+
             # TODO more efficient method?
             dist = MvNormal(kalman.xs, kalman.ps)
             samples = rand(dist, 1000)
