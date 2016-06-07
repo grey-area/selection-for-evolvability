@@ -7,13 +7,17 @@ import Base.==
 abstract Individual
 abstract FitnessFunction
 
+
+
+
+
 type SimpleIndividual <: Individual
     f::Float64
     e::Float64
 end
 
 SimpleIndividual() = SimpleIndividual(0.0, 10.0)
-Base.copy(i::SimpleIndividual) = Individual(i.f, i.e)
+Base.copy(i::SimpleIndividual) = SimpleIndividual(i.f, i.e)
 
 type SimpleFitnessFunction <: FitnessFunction
 end
@@ -34,6 +38,9 @@ end
 function evaluate_fitness(individual::SimpleIndividual, fitness_function::SimpleFitnessFunction)
     return individual.f
 end
+
+
+
 
 
 type ReisingerIndividual <: Individual
@@ -74,6 +81,9 @@ end
 function evaluate_fitness(individual::ReisingerIndividual, fitness_function::ReisingerFitnessFunction)
     return mean(individual.bitstring .== fitness_function.bitstring)
 end
+
+
+
 
 
 type LipsonIndividual <: Individual

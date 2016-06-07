@@ -14,22 +14,24 @@ function init_particle(num_particles::Int64 = 1000, K::Int64 = 2)
     return particle
 end
 
-# TODO use the thompson_i info
-function particle_pred(particle::Particle, ML_q::Float64, q_inference_type::Int64, thompson_i::Int64)
+function filter_predict(particle::Particle, ML_q::Float64, q_inference_type::Int64, evolvability_type::AbstractString, population_index::Int64)
     q = 1.0
     if q_inference_type == 1
         q = ML_q
     end
 
     if q_inference_type != 2
-        particle.xs += randn(particle.K, particle.num_particles) * √q
+        particle.xs[population_index, :] += randn(1, particle.num_particles) * √q
     else
-        particle.xs += randn(particle.K, particle.num_particles) .* √particle.qs'
+        particle.xs[population_index, :] += randn(1, particle.num_particles) .* √particle.qs'
         particle.qs += randn(particle.num_particles) * 0.05
         particle.qs[particle.qs .< 0] = 0.0001
     end
 
+    #if evolvability_type != "maximum"
+    # TODO otherwise the likelihood term for max below tries to take the log of negative numbers. Investigate
     particle.xs[particle.xs .< 0] = 0.0001
+    #end
 end
 
 # Calculate the log of the sum of probabilities given the log probabilities, while avoiding overflow
@@ -43,46 +45,27 @@ function normalize_weights(weights::Array{Float64,1})
     return weights - log_sum_exp_log_probs(weights)
 end
 
+# TODO sample_size should be array
 # Given a pair of observations, add log likelihoods (up to additive constant) to the particle weights
-function particle_update(particle::Particle, obs1::Array{Float64,2}, sample_size::Int64, evolvability_type::ASCIIString, thompson_i::Int64)
+function filter_update(particle::Particle, obs1::Array{Float64,1}, sample_sizes::Array{Int64,1}, evolvability_type::ASCIIString, population_index::Int64)
 
-    for row in 1:size(obs1)[2]
-        obs = obs1[:, row]
-
+    for (obs, sample_size) in zip(obs1, sample_sizes)
         if evolvability_type == "variance"
             k = 0.5 * (sample_size - 1.0)
-            thetas = 2.0 * particle.xs / Float64(sample_size - 1)
+            thetas = 2.0 * particle.xs[population_index, :] / Float64(sample_size - 1)
             thetas[thetas .< 0] = 0.0000001
-
-            if thompson_i == 0
-                particle.weights += squeeze(sum(-obs ./ thetas +(-k) * log(thetas), 1), 1)
-            else
-                particle.weights += squeeze(-obs[thompson_i] ./ thetas[thompson_i, :] +(-k) * log(thetas[thompson_i, :]), 1)
-            end
-
-            particle.weights = normalize_weights(particle.weights)
-
+            particle.weights += squeeze(-obs ./ thetas +(-k) * log(thetas), 1)
         elseif evolvability_type == "std"
-            if thompson_i == 0
-                particle.weights += squeeze(sum(-(obs ./ particle.xs).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs), 1), 1)
-            else
-                particle.weights += squeeze(-(obs[thompson_i] ./ particle.xs[thompson_i, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[thompson_i, :]), 1)
-            end
-            particle.weights = normalize_weights(particle.weights)
-
+            particle.weights += squeeze(-(obs ./ particle.xs[population_index, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[population_index, :]), 1)
         else
-            sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs
-
-            if thompson_i == 0
-                particle.weights += squeeze(sum(-(obs .- particle.xs) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs), 1), 1)
-            else
-                particle.weights += squeeze(-(obs[thompson_i] - particle.xs[thompson_i, :]) .^ 2 ./ (2 * sigmas[thompson_i, :] .^ 2) - log(particle.xs[thompson_i, :]), 1)
-            end
-
-            particle.weights = normalize_weights(particle.weights)
+            sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs[population_index, :]
+            particle.weights += squeeze(-(obs - particle.xs[population_index, :]) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs[population_index, :]), 1)
         end
 
+        particle.weights = normalize_weights(particle.weights)
     end
+
+    particle_resample(particle)
 end
 
 function particle_resample(particle::Particle)
@@ -111,6 +94,20 @@ function particle_resample(particle::Particle)
     end
 end
 
-function particle_duplicate(particle::Particle, index::Int64)
+function filter_expected_values(particle::Particle)
+    return sum(particle.xs .* exp(particle.weights'), 2)
+end
+
+function filter_probabilities(particle::Particle)
+    maxes = mod(squeeze(findmax(particle.xs, 1)[2], 1) - 1, particle.K) + 1
+    probs = zeros(particle.K)
+    exp_weights = exp(particle.weights)
+    for (max, exp_weight) in zip(maxes, exp_weights)
+        probs[max] += exp_weight
+    end
+    probs /= sum(probs)
+end
+
+function filter_duplicate(particle::Particle, index::Int64)
     particle.xs = repmat(particle.xs[index, :], particle.K)
 end
