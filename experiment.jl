@@ -4,7 +4,7 @@ include("fitnessfunctions.jl")
 
 using StatsBase
 
-function observe_evolvability(parent_fitness::Float64, offspring_fitnesses::Array{Float64, 1}, evolvability_type::ASCIIString, sample_size::Int64)
+function observe_evolvability(parent_fitness::Float64, offspring_fitnesses::Array{Float64, 1}, evolvability_type::AbstractString, sample_size::Int64)
 	if evolvability_type == "variance"
 		evolvability_observation = var(offspring_fitnesses)
 	elseif evolvability_type == "std"
@@ -17,7 +17,7 @@ function observe_evolvability(parent_fitness::Float64, offspring_fitnesses::Arra
     return evolvability_observation::Float64
 end
 
-function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::ASCIIString)
+function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString)
     # array for new population, array of their fitnesses, array of arrays of fitnesses, array of sample sizes
     new_population = Array{T}(N2)
     new_fitnesses = zeros(N2)
@@ -45,7 +45,7 @@ function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, Li
     return new_population, new_fitnesses, evolvability_observations, filtered_sample_sizes
 end
 
-function get_current_population_index(bandit_algorithm::ASCIIString, prev_population_index::Int64, K::Int64, maintain_two_populations::Bool, probs::Array{Float64,1})
+function get_current_population_index(bandit_algorithm::AbstractString, prev_population_index::Int64, K::Int64, maintain_two_populations::Bool, probs::Array{Float64,1})
     if !maintain_two_populations
         current_population_index = 1
     elseif bandit_algorithm == "round robin"
@@ -59,27 +59,41 @@ end
 
 
 
+function initialize_population(fitness_function_name::AbstractString = "simple", K::Int64 = 2, N::Int64 = 10)
+    if fitness_function_name == "simple"
+        IndividualF = SimpleIndividual; FitnessFunctionF = SimpleFitnessFunction
+    elseif fitness_function_name == "reisinger"
+        IndividualF = ReisingerIndividual; FitnessFunctionF = ReisingerFitnessFunction
+    else
+        IndividualF = LipsonIndividual; FitnessFunctionF = LipsonFitnessFunction
+    end
+    populations = [IndividualF() for i in 1:K, j in 1:N]
+    fitness_function = FitnessFunctionF()
 
-
-function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(job_id::Int64, parent::T, fitness_function::FitnessFunction, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Int64 = 1, prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
-
-	# TODO initialize more randomly
-    populations::Array{T, 2}
-    populations = T[mutated_copy(parent) for i in 1:K, j in 1:N]
     fitnesses = [evaluate_fitness(populations[i,j], fitness_function) for i in 1:K, j in 1:N]
 
-    # For maximum likelihood q inference (TODO, two types of q)
-    prev_predictions = [Inf for i in 1:K]
-    sum_of_square_diffs_of_predictions = 0.0
-    number_of_diffs = 0
-    ML_q = 1.
+    return populations, fitness_function, fitnesses
+end
 
+function do_trial(fitness_function_name::AbstractString = "simple", selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", heuristic::Int64 = 1, prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
+
+    populations, fitness_function, fitnesses = initialize_population(fitness_function_name, K, N)
+
+    # Initialize filter
     local filter::Union{Kalman, Particle}
     if selection_type == "kalman"
         filter = init_kalman(K)
     elseif selection_type == "particle"
         filter = init_particle(500, K)
     end
+
+    # Initialize bookkeeping
+    # For maximum likelihood q inference (TODO, two types of q)
+    prev_predictions = [Inf for i in 1:K]
+    sum_of_square_diffs_of_predictions = 0.0
+    number_of_diffs = 0
+    ML_q = 1.
+    probs = [1/K for i in 1:K]
 
     generation = 1
     current_fitness_evals = 0
@@ -88,8 +102,6 @@ function do_trial{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividu
     prev_population_index = K
 
     results = Float64[]
-
-    probs = [1/K for i in 1:K]
 
     while current_fitness_evals < fitness_evals
 
@@ -183,26 +195,12 @@ end
 
 
 
-
-function do_experiment(job_id::Int64, fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::ASCIIString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::ASCIIString = "variance", heuristic::Int64 = 1, P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
+# TODO remove max_n, thompson from results string
+function do_experiment(job_id::Int64, fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", heuristic::Int64 = 1, P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
     fitness_results = zeros(trials)
 
     for trial in 1:trials
-
-        fitness_function::FitnessFunction
-
-        if fitness_function_name == "simple"
-            parent = SimpleIndividual()
-            fitness_function = SimpleFitnessFunction()
-        elseif fitness_function_name == "reisinger"
-            parent = ReisingerIndividual()
-            fitness_function = ReisingerFitnessFunction()
-        else
-            parent = LipsonIndividual()
-            fitness_function = LipsonFitnessFunction()
-        end
-
-        fitness_results[trial] = do_trial(job_id, parent, fitness_function, selection_type, fitness_evals, N, evolvability_type, heuristic, P, N2, M, q_inference_type, bandit_algorithm, K)
+        fitness_results[trial] = do_trial(fitness_function_name, selection_type, fitness_evals, N, evolvability_type, heuristic, P, N2, M, q_inference_type, bandit_algorithm, K)
     end
 
     # Write results to file here

@@ -47,7 +47,7 @@ end
 
 # TODO sample_size should be array
 # Given a pair of observations, add log likelihoods (up to additive constant) to the particle weights
-function filter_update(particle::Particle, obs1::Array{Float64,1}, sample_sizes::Array{Int64,1}, evolvability_type::ASCIIString, population_index::Int64)
+function filter_update(particle::Particle, obs1::Array{Float64,1}, sample_sizes::Array{Int64,1}, evolvability_type::AbstractString, population_index::Int64)
 
     for (obs, sample_size) in zip(obs1, sample_sizes)
         if evolvability_type == "variance"

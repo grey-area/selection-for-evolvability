@@ -21,7 +21,7 @@ function filter_predict(kalman::Kalman, ML_q::Float64, q_inference_type::Int64, 
 end
 
 # TODO something with n, should be an array
-function filter_update(kalman::Kalman, obs::Array{Float64,1}, sample_sizes::Array{Int64, 1}, evolvability_type::ASCIIString, population_index::Int64)
+function filter_update(kalman::Kalman, obs::Array{Float64,1}, sample_sizes::Array{Int64, 1}, evolvability_type::AbstractString, population_index::Int64)
     for (ob, sample_size) in zip(obs, sample_sizes)
         # The variance of the observation, depending on the observation type
         if evolvability_type == "variance"
