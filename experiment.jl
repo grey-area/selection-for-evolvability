@@ -3,6 +3,7 @@ include("particle.jl")
 include("fitnessfunctions.jl")
 
 using StatsBase
+using Distributions
 
 function observe_evolvability(parent_fitness::Float64, offspring_fitnesses::Array{Float64, 1}, evolvability_type::AbstractString, sample_size::Int64)
 	if evolvability_type == "variance"
@@ -19,16 +20,14 @@ end
 
 function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString)
     # array for new population, array of their fitnesses, array of arrays of fitnesses, array of sample sizes
+    tournament_size = 2
     new_population = Array{T}(N2)
     new_fitnesses = zeros(N2)
     parent_offspring_fitnesses = [Array{Float64}(0) for i in 1:N]
     for i in 0:(div(N2, 2) - 1)
-        i1 = rand(1:N)
-        i2 = rand(1:N)
-        fitter_index = i1
-        if fitnesses[current_population_index, i2] > fitnesses[current_population_index, i1]
-            fitter_index = i2
-        end
+        contender_indices = sample(1:N, tournament_size, replace=false)
+        fitter_index = contender_indices[findmax(squeeze(fitnesses[current_population_index, contender_indices], 1))[2]]
+
         for j in 0:1
             new_index = 2i + j + 1
             new_population[new_index] = mutated_copy(populations[current_population_index, fitter_index])
@@ -205,7 +204,7 @@ function do_experiment(job_id::Int64, fitness_function_name::AbstractString, tri
 
     # Write results to file here
     filename = @sprintf("data/%d.dat", job_id)
-    header = @sprintf("fitness_evals-%d+N-%d+evolvability_type-%s+problem-%s+selection_type-%s+N2-%d+M-%d+heuristic-%d+p-%.2f+max_n-%d+q-%d+th-%d\n", fitness_evals, N, evolvability_type, fitness_function_name,selection_type, N2,M,heuristic,P, 0, q_inference_type, 0)
+    header = @sprintf("fitness_evals-%d+N-%d+evolvability_type-%s+problem-%s+selection_type-%s+N2-%d+M-%d+heuristic-%d+p-%.2f+max_n-%d+q-%d+th-%s\n", fitness_evals, N, evolvability_type, fitness_function_name,selection_type, N2,M,heuristic,P, 0, q_inference_type, bandit_algorithm)
     f = open(filename, "a")
     write(f, header)
     for (datum_i, datum) in enumerate(fitness_results)
@@ -223,12 +222,12 @@ end
 
 
 function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name::AbstractString = "simple")
-    fitness_evalss = [5000, 10000] # 5000, 10000?
-    Ns = [20, 50] # 100?
-    selection_types = ["point","fitness", "kalman", "particle"] # point, fitness, kalman
+    fitness_evalss = [5000] # 5000, 10000?
+    Ns = [2, 50] # 20, 50
+    selection_types = ["fitness", "kalman", "particle"] # point, fitness, kalman
     evolvability_types = ["std", "maximum"]
     heuristics = [1, 2] # 0, 1, 2
-    Ps = [0.6, 0.9] # 0.9
+    Ps = [0.6] # 0.9
     N2s = [1, 10]
     Ms = [5, 50]
     Ks = [2] # Number of populations
@@ -256,11 +255,11 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
                                     else
                                         for P in Ps
                                             if selection_type == "kalman"
-                                                q_inference_types = [0, 1] # 0, 1
-                                                bandit_algorithms = ["round robin"]
+                                                q_inference_types = [1] # 0, 1
+                                                bandit_algorithms = ["round robin"] # thompson sampling
                                             else
-                                                q_inference_types = [0, 1, 2] # 0, 1, 2
-                                                bandit_algorithms = ["round robin", "thompson sampling"]
+                                                q_inference_types = [1, 2] # 0, 1, 2
+                                                bandit_algorithms = ["round robin"] # thompson sampling
                                             end
                                             for q_inference_type in q_inference_types
                                                 for bandit_algorithm in bandit_algorithms

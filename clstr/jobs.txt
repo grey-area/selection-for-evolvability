@@ -1,1 +1,0 @@
-cd /home/andrew/phd/code/research/16/3_julia; julia experiment.jl 0 1 simple
