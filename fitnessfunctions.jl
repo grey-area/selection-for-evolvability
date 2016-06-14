@@ -49,7 +49,7 @@ type ReisingerIndividual <: Individual
 end
 
 ReisingerIndividual() = ReisingerIndividual(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100))
-Base.copy(i::ReisingerIndividual) = ReisingerIndividual(copy(i.bitstring), copy(i,mutation_mask))
+Base.copy(i::ReisingerIndividual) = ReisingerIndividual(copy(i.bitstring), copy(i.mutation_mask))
 
 type ReisingerFitnessFunction <: FitnessFunction
     bitstring::Array{Int64,1}

@@ -7,7 +7,7 @@ type Particle
 end
 
 function init_particle(num_particles::Int64 = 1000, K::Int64 = 2)
-    xs = 10.0 + 10.0 * randn(K, num_particles)
+    xs = 100.0 + sqrt(30.0) * randn(K, num_particles)
     qs = 5.0 * randexp(num_particles)
     weights = log(ones(num_particles) / Float64(num_particles))
     particle = Particle(num_particles, K, xs, qs, weights)
@@ -56,8 +56,11 @@ function filter_update(particle::Particle, obs1::Array{Float64,1}, sample_sizes:
             thetas[thetas .< 0] = 0.0000001
             particle.weights += squeeze(-obs ./ thetas +(-k) * log(thetas), 1)
         elseif evolvability_type == "std"
-            particle.weights += squeeze(-(obs ./ particle.xs[population_index, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[population_index, :]), 1)
+            # TODO variance of filter drops too quickly?
+            #particle.weights += squeeze(-(obs ./ particle.xs[population_index, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[population_index, :]), 1)
+            particle.weights += squeeze(-(sample_size - 2 + 1/(pi-2)) * (obs ./ particle.xs[population_index, :] .- 1).^2 - log(particle.xs[population_index, :]), 1)
         else
+            # TODO makes wrong predictions?
             sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs[population_index, :]
             particle.weights += squeeze(-(obs - particle.xs[population_index, :]) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs[population_index, :]), 1)
         end
