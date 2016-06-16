@@ -23,7 +23,7 @@ end
 # Select and mutate using tournament selection for one of the populations
 # return the new population and fitnesses
 # calculate evolvability observations for the population in question
-function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString)
+function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString)
     # array for new population, array of their fitnesses, array of arrays of fitnesses, array of sample sizes
 
     #tournament_size = max(2, div(N,2))
@@ -89,6 +89,8 @@ function initialize_population(fitness_function_name::AbstractString = "simple",
         IndividualF = SimpleIndividual; FitnessFunctionF = SimpleFitnessFunction
     elseif fitness_function_name == "reisinger"
         IndividualF = ReisingerIndividual; FitnessFunctionF = ReisingerFitnessFunction
+    elseif fitness_function_name == "turney"
+        IndividualF = TurneyIndividual; FitnessFunctionF = TurneyFitnessFunction
     else
         IndividualF = LipsonIndividual; FitnessFunctionF = LipsonFitnessFunction
     end
@@ -101,13 +103,13 @@ function initialize_population(fitness_function_name::AbstractString = "simple",
 end
 
 
-function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(generation::Int64, M::Int64, N::Int64, N2::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString, current_population_index::Int64)
+function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(generation::Int64, K::Int64, M::Int64, N::Int64, N2::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString, current_fitness_evals::Int64, fitness_evals_since_selection::Int64)
     max_index = 0
 
     if mod(generation, M) == 0
         population_mean_evolvability_observations = zeros(K)
         for current_population_index2 in 1:K
-            new_population, new_fitnesses, evolvability_observations, filtered_sample_sizes = tournament_selection(N, N2, current_population_index2, fitnesses, populations, fitness_function, evolvability_type)
+            new_population, new_fitnesses, evolvability_observations, sample_sizes = tournament_selection(N, N2, current_population_index2, fitnesses, populations, fitness_function, evolvability_type)
             population_mean_evolvability_observations[current_population_index2] = mean(evolvability_observations)
         end
 
@@ -121,11 +123,11 @@ function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndivi
 end
 
 
-function update_filter(evolvability_type::AbstractString, filter::Union{Kalman, Particle}, ML_q::Float64, q_inference_type::Int64, current_population_index::Int64, prob_threshold::Float64, evolvability_observations::Array{Float64, 1}, filtered_sample_sizes::Array{Int64, 1})
+function update_filter(evolvability_type::AbstractString, filter::Union{Kalman, Particle}, ML_q::Float64, q_inference_type::Int64, current_population_index::Int64, prob_threshold::Float64, evolvability_observations::Array{Float64, 1}, sample_sizes::Array{Int64, 1})
     max_index = 0
 
     filter_predict(filter, ML_q, q_inference_type, evolvability_type, current_population_index)
-    filter_update(filter, evolvability_observations, filtered_sample_sizes, evolvability_type, current_population_index)
+    filter_update(filter, evolvability_observations, sample_sizes, evolvability_type, current_population_index)
     predictions = filter_expected_values(filter)
     probs = filter_probabilities(filter)
 
@@ -140,7 +142,7 @@ end
 
 
 # Duplicate one population
-function select_for_evolvability{T<:Union{SimpleIndividual, ReisingerIndividual, LipsonIndividual}}(populations::Array{T, 2}, fitnesses::Array{Float64, 2}, max_index::Int64, prev_predictions::Array{Float64, 1}, current_fitness_evals::Int64, fitness_evals_since_selection::Int64, fitness_evals_at_selection::Int64, K::Int64, N::Int64)
+function select_for_evolvability{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(populations::Array{T, 2}, fitnesses::Array{Float64, 2}, max_index::Int64, prev_predictions::Array{Float64, 1}, current_fitness_evals::Int64, fitness_evals_since_selection::Int64, fitness_evals_at_selection::Int64, K::Int64, N::Int64)
     for i in 1:K
         for j in 1:N
             populations[i, j] = copy(populations[max_index, j])
@@ -165,6 +167,7 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
 
     # Initial populations and fitnesses, K by N arrays
     populations, fitness_function, fitnesses = initialize_population(fitness_function_name, K, N)
+    populations::Array{Union{LipsonIndividual, SimpleIndividual, ReisingerIndividual, TurneyIndividual}}
 
     # Initialize filter
     local filter::Union{Kalman, Particle}
@@ -226,7 +229,7 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
         if maintain_multiple_populations
             # If it's time to calculate evolvability point estimates, do so, and determine which population has the larger evolvability (for selection)
             if selection_type == "point"
-                max_index, current_fitness_evals, fitness_evals_since_selection = evolvability_point_estimates(generation, M, N, N2, fitnesses, populations, fitness, evolvability_type, current_population_index)
+                max_index, current_fitness_evals, fitness_evals_since_selection = evolvability_point_estimates(generation, K, M, N, N2, fitnesses, populations, fitness_function, evolvability_type, current_fitness_evals, fitness_evals_since_selection)
 
             # Update the filter (predict then update step)
             # Calculate the predictions of the filter and the probability that each population is fittest
@@ -236,7 +239,7 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
 
                 # Maximum likelihood estimate of process noise.
                 # TODO, two predictions
-                if prev_predictions[1] != Inf
+                if prev_predictions[current_population_index] != Inf
                     sum_of_square_diffs_of_predictions += (predictions[current_population_index] - prev_predictions[current_population_index]).^2
                     number_of_diffs += 1
                     ML_q = sum_of_square_diffs_of_predictions / number_of_diffs
@@ -312,6 +315,11 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
         N2s = [1]; Ms = [1]
 
         # Parameters to change 2
+        if selection_type != "fitness"
+            termination_heuristics = [0, 1]
+            Ks = [3]
+            Ps = [0.9]
+        end
         if selection_type == "point"
             N2s = [1, 10]
             Ms = [5, 50]

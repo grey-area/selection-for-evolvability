@@ -86,6 +86,54 @@ end
 
 
 
+
+type TurneyIndividual <: Individual
+    bitstring::Array{Int64,1}
+    mirrored_probability::Float64
+end
+
+TurneyIndividual() = TurneyIndividual(rand(Distributions.Bernoulli(0.5), 100), rand())
+Base.copy(i::TurneyIndividual) = TurneyIndividual(copy(i.bitstring), i.mirrored_probability)
+
+type TurneyFitnessFunction <: FitnessFunction
+    bitstring::Array{Int64,1}
+    mirrored_probability::Float64
+end
+
+TurneyFitnessFunction() = TurneyFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand())
+
+function turney_changes(individual::Union{TurneyIndividual, TurneyFitnessFunction}, mutation_rate::Float64)
+    mutations = rand(Distributions.Bernoulli(mutation_rate), 100)
+    mirrored = rand() < individual.mirrored_probability
+    if mirrored
+        mutations = mutations $ reverse(mutations)
+    end
+    new_bitstring = individual.bitstring $ mutations
+
+    meta_mutation = 10.0 * mutation_rate * (rand() - 0.5)
+    new_mirrored_probability = max(min(individual.mirrored_probability + meta_mutation, 1.0), 0.0)
+    return new_bitstring, new_mirrored_probability
+end
+
+function mutated_copy(individual::TurneyIndividual)
+    mutation_rate = 0.01
+    new_bitstring, new_mirrored_probability = turney_changes(individual, mutation_rate)
+    return TurneyIndividual(new_bitstring, new_mirrored_probability)
+end
+
+function delta_fitness_function!(fitness_function::TurneyFitnessFunction)
+    mutation_rate = 0.01
+    fitness_function.bitstring, fitness_function.mirrored_probability = turney_changes(fitness_function, mutation_rate)
+end
+
+function evaluate_fitness(individual::TurneyIndividual, fitness_function::TurneyFitnessFunction)
+    return mean(individual.bitstring .== fitness_function.bitstring)
+end
+
+
+
+
+
 type LipsonIndividual <: Individual
     w1::Array{Int64, 2}
     w2::Array{Int64, 2}

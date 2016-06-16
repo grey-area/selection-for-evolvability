@@ -53,7 +53,7 @@ end
 
 function filter_probabilities(kalman::Kalman)
     # Calculate probability that each is maximal
-    dist = MvNormal(kalman.xs, kalman.ps)
+    dist = MvNormal(kalman.xs, kalman.ps + 0.01 * eye(kalman.K))
     samples = rand(dist, 1000)
     maxes = mod(squeeze(findmax(samples, 1)[2], 1) - 1, kalman.K) + 1
     probs = hist(maxes, 0.5:kalman.K+0.5)[2] / length(maxes)
