@@ -19,6 +19,26 @@ function observe_evolvability(parent_fitness::Float64, offspring_fitnesses::Arra
     return evolvability_observation::Float64
 end
 
+function crossover_population{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(crossover_rate::Float64, fitness_function::FitnessFunction, new_population::Array{T, 1}, new_fitnesses::Array{Float64, 1}, N2::Int64)
+
+    if rand() < crossover_rate && fitness_function.implements_crossover
+        shuffle!(new_population)
+        crossed_population = Array{T}(N2)
+
+        for i in 0:(div(N2, 2) - 1)
+            base_index = 2i + 1
+
+            c1, c2 = crossover(new_population[base_index], new_population[base_index+1])
+            crossed_population[base_index] = c1
+            crossed_population[base_index+1] = c2
+        end
+
+        new_fitnesses = Float64[evaluate_fitness(individual, fitness_function) for individual in crossed_population]
+        new_population = crossed_population
+    end
+
+    return new_population, new_fitnesses
+end
 
 # Select and mutate using tournament selection for one of the populations
 # return the new population and fitnesses
@@ -215,6 +235,8 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
         # For the population chosen, go through one generation of selection and mutation
         # Also record the evolvabilities of the parents, and the sample sizes used to calculate those evolvabilities
         new_population, new_fitnesses, evolvability_observations, filtered_sample_sizes = tournament_selection(N, N, current_population_index, fitnesses, populations, fitness_function, evolvability_type)
+        crossover_rate = 1.0
+        new_population, new_fitnesses = crossover_population(crossover_rate, fitness_function, new_population, new_fitnesses, N)
         populations[current_population_index, :] = new_population'
         fitnesses[current_population_index, :] = new_fitnesses'
 
@@ -302,7 +324,7 @@ function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name:
     close(f)
 
     # Parameters to change 1
-    fitness_evalss = [5000, 10000] # 5000, 10000
+    fitness_evalss = [500, 1000] # 5000, 10000
     Ns = [2, 50] # 2, 50
     selection_types = ["fitness", "kalman"] # fitness, point, kalman, particle
     evolvability_types = ["std"] # std, maximum

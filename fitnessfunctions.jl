@@ -8,6 +8,22 @@ abstract Individual
 abstract FitnessFunction
 
 
+# Simulated binary crossover with n=2
+function cross_float(v1::Float64, v2::Float64, lower_limit::Float64 = -Inf, upper_limit::Float64 = Inf)
+    u = rand()
+    beta = u <= 0.5 ? (2u)^(1/3) : 1/(2(1-u))^(1/3)
+    x = (v1 + v2) / 2
+    c1 = max(min(x - beta/2 * (v2 - v1), upper_limit), lower_limit)
+    c2 = max(min(x + beta/2 * (v2 - v1), upper_limit), lower_limit)
+    return c1, c2
+end
+
+function cross_array(v1::Array{Int64, 1}, v2::Array{Int64, 1})
+    index = rand(0:length(v1))
+    c1 = [v1[1:index]; v2[index+1:end]]
+    c2 = [v2[1:index]; v1[index+1:end]]
+    return c1, c2
+end
 
 
 
@@ -20,7 +36,9 @@ SimpleIndividual() = SimpleIndividual(0.0, 10.0)
 Base.copy(i::SimpleIndividual) = SimpleIndividual(i.f, i.e)
 
 type SimpleFitnessFunction <: FitnessFunction
+    implements_crossover::Bool
 end
+SimpleFitnessFunction() = SimpleFitnessFunction(true)
 
 function mutated_copy(p::SimpleIndividual)
     q = 1.0
@@ -30,6 +48,18 @@ function mutated_copy(p::SimpleIndividual)
         e2 = 0.0001
     end
     return SimpleIndividual(f2, e2)
+end
+
+function crossover(p1::SimpleIndividual, p2::SimpleIndividual)
+    c1f = p1.f; c2f = p2.f; c1e = p1.e; c2e = p2.e
+
+    if rand() < 0.5
+        c1f, c2f = cross_float(c1f, c2f)
+    else
+        c1e, c2e = cross_float(c1e, c2e, 0.001)
+    end
+
+    return SimpleIndividual(c1f, c1e), SimpleIndividual(c2f, c2e)
 end
 
 function delta_fitness_function!(fitness_function::SimpleFitnessFunction)
@@ -54,9 +84,10 @@ Base.copy(i::ReisingerIndividual) = ReisingerIndividual(copy(i.bitstring), copy(
 type ReisingerFitnessFunction <: FitnessFunction
     bitstring::Array{Int64,1}
     mutation_mask::Array{Int64,1}
+    implements_crossover::Bool
 end
 
-ReisingerFitnessFunction() = ReisingerFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100))
+ReisingerFitnessFunction() = ReisingerFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100), true)
 
 function reisinger_changes(individual::Union{ReisingerIndividual, ReisingerFitnessFunction}, mutation_rate::Float64)
     mutations = rand(Distributions.Bernoulli(mutation_rate), 100)
@@ -71,6 +102,18 @@ function mutated_copy(individual::ReisingerIndividual)
     mutation_rate = 0.01
     new_bitstring, new_mutation_mask = reisinger_changes(individual, mutation_rate)
     return ReisingerIndividual(new_bitstring, new_mutation_mask)
+end
+
+function crossover(p1::ReisingerIndividual, p2::ReisingerIndividual)
+    c1b = copy(p1.bitstring); c1m = copy(p1.mutation_mask); c2b = copy(p2.bitstring); c2m = copy(p2.mutation_mask)
+
+    if rand() < 0.5
+        c1b, c2b = cross_array(c1b, c2b)
+    else
+        c1m, c2m = cross_array(c1m, c2m)
+    end
+
+    return ReisingerIndividual(c1b, c1m), ReisingerIndividual(c2b, c2m)
 end
 
 function delta_fitness_function!(fitness_function::ReisingerFitnessFunction)
@@ -98,9 +141,10 @@ Base.copy(i::TurneyIndividual) = TurneyIndividual(copy(i.bitstring), i.mirrored_
 type TurneyFitnessFunction <: FitnessFunction
     bitstring::Array{Int64,1}
     mirrored_probability::Float64
+    implements_crossover::Bool
 end
 
-TurneyFitnessFunction() = TurneyFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand())
+TurneyFitnessFunction() = TurneyFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(), true)
 
 function turney_changes(individual::Union{TurneyIndividual, TurneyFitnessFunction}, mutation_rate::Float64)
     mutations = rand(Distributions.Bernoulli(mutation_rate), 100)
@@ -119,6 +163,18 @@ function mutated_copy(individual::TurneyIndividual)
     mutation_rate = 0.01
     new_bitstring, new_mirrored_probability = turney_changes(individual, mutation_rate)
     return TurneyIndividual(new_bitstring, new_mirrored_probability)
+end
+
+function crossover(p1::TurneyIndividual, p2::TurneyIndividual)
+    c1b = copy(p1.bitstring); c1m = p1.mirrored_probability; c2b = copy(p2.bitstring); c2m = p2.mirrored_probability
+
+    if rand() < 0.5
+        c1b, c2b = cross_array(c1b, c2b)
+    else
+        c1m, c2m = cross_float(c1m, c2m, 0.0, 1.0)
+    end
+
+    return TurneyIndividual(c1b, c1m), TurneyIndividual(c2b, c2m)
 end
 
 function delta_fitness_function!(fitness_function::TurneyFitnessFunction)
@@ -151,6 +207,7 @@ type LipsonFitnessFunction <: FitnessFunction
     inputs::Array{Array{Int64,1}, 1}
     targets::BitArray{2}
     task::Int64
+    implements_crossover::Bool
 end
 
 function LipsonFitnessFunction()
@@ -176,7 +233,7 @@ function LipsonFitnessFunction()
     end
     targets = [and_targets or_targets]
 
-    return LipsonFitnessFunction(inputs, targets, 1)
+    return LipsonFitnessFunction(inputs, targets, 1, false)
 end
 
 function inc_dec(layer::Array{Int64, 2}, i::Int64, j::Int64)
