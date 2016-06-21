@@ -14,13 +14,13 @@ function init_particle(num_particles::Int64 = 1000, K::Int64 = 2)
     return particle
 end
 
-function filter_predict(particle::Particle, ML_q::Float64, q_inference_type::Int64, evolvability_type::AbstractString, population_index::Int64)
+function filter_predict(particle::Particle, ML_q::Float64, q_inference_type::AbstractString, evolvability_type::AbstractString, population_index::Int64)
     q = 1.0
-    if q_inference_type == 1
+    if q_inference_type == "ML"
         q = ML_q
     end
 
-    if q_inference_type != 2
+    if q_inference_type != "mean_posterior"
         particle.xs[population_index, :] += randn(1, particle.num_particles) * √q
     else
         particle.xs[population_index, :] += randn(1, particle.num_particles) .* √particle.qs'
@@ -97,7 +97,7 @@ function particle_resample(particle::Particle)
 end
 
 function filter_expected_values(particle::Particle)
-    return sum(particle.xs .* exp(particle.weights'), 2)
+    return squeeze(sum(particle.xs .* exp(particle.weights'), 2), 2)
 end
 
 function filter_probabilities(particle::Particle)

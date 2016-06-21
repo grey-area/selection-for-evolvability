@@ -62,7 +62,7 @@ function crossover(p1::SimpleIndividual, p2::SimpleIndividual)
     return SimpleIndividual(c1f, c1e), SimpleIndividual(c2f, c2e)
 end
 
-function delta_fitness_function!(fitness_function::SimpleFitnessFunction)
+function delta_fitness_function!(fitness_function::SimpleFitnessFunction, problem_delta_rate::Float64)
 end
 
 function evaluate_fitness(individual::SimpleIndividual, fitness_function::SimpleFitnessFunction)
@@ -116,8 +116,8 @@ function crossover(p1::ReisingerIndividual, p2::ReisingerIndividual)
     return ReisingerIndividual(c1b, c1m), ReisingerIndividual(c2b, c2m)
 end
 
-function delta_fitness_function!(fitness_function::ReisingerFitnessFunction)
-    mutation_rate = 0.01
+function delta_fitness_function!(fitness_function::ReisingerFitnessFunction, problem_delta_rate::Float64)
+    mutation_rate = 0.01 * problem_delta_rate
     fitness_function.bitstring, fitness_function.mutation_mask = reisinger_changes(fitness_function, mutation_rate)
 end
 
@@ -177,7 +177,7 @@ function crossover(p1::TurneyIndividual, p2::TurneyIndividual)
     return TurneyIndividual(c1b, c1m), TurneyIndividual(c2b, c2m)
 end
 
-function delta_fitness_function!(fitness_function::TurneyFitnessFunction)
+function delta_fitness_function!(fitness_function::TurneyFitnessFunction, problem_delta_rate::Float64)
     mutation_rate = 0.01
     fitness_function.bitstring, fitness_function.mirrored_probability = turney_changes(fitness_function, mutation_rate)
 end
@@ -332,8 +332,9 @@ function mutated_copy(n::LipsonIndividual)
     return network
 end
 
-function delta_fitness_function!(fitness_function::LipsonFitnessFunction)
-    if rand() < 0.2
+function delta_fitness_function!(fitness_function::LipsonFitnessFunction, problem_delta_rate::Float64)
+    threshold = 1/(1+exp(-problem_delta_rate)) - 0.5
+    if rand() < threshold
         fitness_function.task = 3 - fitness_function.task
     end
 end

@@ -11,9 +11,9 @@ function init_kalman(K::Int64 = 2)
 end
 
 # TODO two kinds of q
-function filter_predict(kalman::Kalman, ML_q::Float64, q_inference_type::Int64, evolvability_type::AbstractString, population_index::Int64)
+function filter_predict(kalman::Kalman, ML_q::Float64, q_inference_type::AbstractString, evolvability_type::AbstractString, population_index::Int64)
     q = 1.0
-    if q_inference_type != 0
+    if q_inference_type != "none"
         q = ML_q
     end
     #kalman.ps += eye(kalman.K) * q

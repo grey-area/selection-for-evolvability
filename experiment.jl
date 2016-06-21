@@ -2,6 +2,14 @@ include("kalman.jl")
 include("particle.jl")
 include("fitnessfunctions.jl")
 
+#=
+TODO list
+- Check PF can track maximum properly
+- Don't just return the mean of trial results?
+- Calculate and return evolvability
+- Bandits
+=#
+
 using Iterators
 
 # Calculate an unbiased estimate of evolvability
@@ -43,11 +51,8 @@ end
 # Select and mutate using tournament selection for one of the populations
 # return the new population and fitnesses
 # calculate evolvability observations for the population in question
-function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString)
+function tournament_selection{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(N::Int64, N2::Int64, current_population_index::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString, tournament_size::Int64)
     # array for new population, array of their fitnesses, array of arrays of fitnesses, array of sample sizes
-
-    #tournament_size = max(2, div(N,2))
-    tournament_size = 2
 
     new_population = Array{T}(N2)
     new_fitnesses = zeros(N2)
@@ -123,13 +128,13 @@ function initialize_population(fitness_function_name::AbstractString = "simple",
 end
 
 
-function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(generation::Int64, K::Int64, M::Int64, N::Int64, N2::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString, current_fitness_evals::Int64, fitness_evals_since_selection::Int64)
+function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndividual, TurneyIndividual, LipsonIndividual}}(generation::Int64, K::Int64, M::Int64, N::Int64, N2::Int64, fitnesses::Array{Float64, 2}, populations::Array{T, 2}, fitness_function::FitnessFunction, evolvability_type::AbstractString, current_fitness_evals::Int64, fitness_evals_since_selection::Int64, tournament_size::Int64)
     max_index = 0
 
     if mod(generation, M) == 0
         population_mean_evolvability_observations = zeros(K)
         for current_population_index2 in 1:K
-            new_population, new_fitnesses, evolvability_observations, sample_sizes = tournament_selection(N, N2, current_population_index2, fitnesses, populations, fitness_function, evolvability_type)
+            new_population, new_fitnesses, evolvability_observations, sample_sizes = tournament_selection(N, N2, current_population_index2, fitnesses, populations, fitness_function, evolvability_type, tournament_size)
             population_mean_evolvability_observations[current_population_index2] = mean(evolvability_observations)
         end
 
@@ -143,7 +148,7 @@ function evolvability_point_estimates{T<:Union{SimpleIndividual, ReisingerIndivi
 end
 
 
-function update_filter(evolvability_type::AbstractString, filter::Union{Kalman, Particle}, ML_q::Float64, q_inference_type::Int64, current_population_index::Int64, prob_threshold::Float64, evolvability_observations::Array{Float64, 1}, sample_sizes::Array{Int64, 1})
+function update_filter(evolvability_type::AbstractString, filter::Union{Kalman, Particle}, ML_q::Float64, q_inference_type::AbstractString, current_population_index::Int64, prob_threshold::Float64, evolvability_observations::Array{Float64, 1}, sample_sizes::Array{Int64, 1})
     max_index = 0
 
     filter_predict(filter, ML_q, q_inference_type, evolvability_type, current_population_index)
@@ -183,7 +188,7 @@ end
 
 
 
-function do_trial(fitness_function_name::AbstractString = "simple", selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", termination_heuristic::Int64 = 1, prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
+function do_trial(fitness_function_name::AbstractString = "simple", selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", termination_heuristic::AbstractString = "halfway", prob_threshold::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::AbstractString = "none", bandit_algorithm::AbstractString = "round robin", K::Int64 = 2, tournament_size::Int64 = 2, problem_delta_rate::Float64 = 1.0)
 
     # Initial populations and fitnesses, K by N arrays
     populations, fitness_function, fitnesses = initialize_population(fitness_function_name, K, N)
@@ -216,14 +221,14 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
     while current_fitness_evals < fitness_evals
 
         # For fitness functions that change over time
-        delta_fitness_function!(fitness_function)
+        delta_fitness_function!(fitness_function, problem_delta_rate)
 
         # Determines whether we maintain multiple populations
         # We only maintain multiple populations if we are not selecting for fitness alone and the termination criterion isn't met.
         # Termination criterion 1 is met when half of the fitness evaluations are used up
         # Termination criterion 2 is met when the number of fitness evaluations since we last selected for evolvability is more than 10% of the fitness evaluations remaining
         maintain_multiple_populations = true
-        if selection_type == "fitness" || (termination_heuristic == 1 && current_fitness_evals / fitness_evals > 0.5) || (termination_heuristic == 2 && fitness_evals_since_selection / (fitness_evals - fitness_evals_at_selection) > 0.1)
+        if selection_type == "fitness" || (termination_heuristic == "halfway" && current_fitness_evals / fitness_evals > 0.5) || (termination_heuristic == "relative" && fitness_evals_since_selection / (fitness_evals - fitness_evals_at_selection) > 0.1)
             maintain_multiple_populations = false
         end
 
@@ -234,7 +239,7 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
 
         # For the population chosen, go through one generation of selection and mutation
         # Also record the evolvabilities of the parents, and the sample sizes used to calculate those evolvabilities
-        new_population, new_fitnesses, evolvability_observations, filtered_sample_sizes = tournament_selection(N, N, current_population_index, fitnesses, populations, fitness_function, evolvability_type)
+        new_population, new_fitnesses, evolvability_observations, filtered_sample_sizes = tournament_selection(N, N, current_population_index, fitnesses, populations, fitness_function, evolvability_type, tournament_size)
         crossover_rate = 1.0
         new_population, new_fitnesses = crossover_population(crossover_rate, fitness_function, new_population, new_fitnesses, N)
         populations[current_population_index, :] = new_population'
@@ -251,7 +256,7 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
         if maintain_multiple_populations
             # If it's time to calculate evolvability point estimates, do so, and determine which population has the larger evolvability (for selection)
             if selection_type == "point"
-                max_index, current_fitness_evals, fitness_evals_since_selection = evolvability_point_estimates(generation, K, M, N, N2, fitnesses, populations, fitness_function, evolvability_type, current_fitness_evals, fitness_evals_since_selection)
+                max_index, current_fitness_evals, fitness_evals_since_selection = evolvability_point_estimates(generation, K, M, N, N2, fitnesses, populations, fitness_function, evolvability_type, current_fitness_evals, fitness_evals_since_selection, tournament_size)
 
             # Update the filter (predict then update step)
             # Calculate the predictions of the filter and the probability that each population is fittest
@@ -260,7 +265,6 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
                 max_index, predictions, probs = update_filter(evolvability_type, filter, ML_q, q_inference_type, current_population_index, prob_threshold, evolvability_observations, filtered_sample_sizes)
 
                 # Maximum likelihood estimate of process noise.
-                # TODO, two predictions
                 if prev_predictions[current_population_index] != Inf
                     sum_of_square_diffs_of_predictions += (predictions[current_population_index] - prev_predictions[current_population_index]).^2
                     number_of_diffs += 1
@@ -285,8 +289,9 @@ function do_trial(fitness_function_name::AbstractString = "simple", selection_ty
 
     end # End of trial
 
+    evolvability = 0.0
     # Return mean of mean fitness during last 10% of the run
-    return mean(results)
+    return mean(results), evolvability
 end
 
 
@@ -294,82 +299,62 @@ end
 
 
 # Run each trial, record the results to a file identified by the job id
-function do_experiment(job_id::Int64, fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", termination_heuristic::Int64 = 1, P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::Int64 = 0, bandit_algorithm::AbstractString = "round robin", K::Int64 = 2)
+function do_experiment(fitness_function_name::AbstractString, trials::Int64 = 10, selection_type::AbstractString = "kalman", fitness_evals::Int64 = 10000, N::Int64 = 2, evolvability_type::AbstractString = "variance", termination_heuristic::AbstractString = "halfway", P::Float64 = 0.7, N2::Int64 = 1, M::Int64 = 1, q_inference_type::AbstractString = "none", bandit_algorithm::AbstractString = "round robin", K::Int64 = 2, tournament_size::Int64 = 2, problem_delta_rate::Float64 = 1.0)
     fitness_results = zeros(trials)
+    evolvability_results = zeros(trials)
 
     for trial in 1:trials
-        fitness_results[trial] = do_trial(fitness_function_name, selection_type, fitness_evals, N, evolvability_type, termination_heuristic, P, N2, M, q_inference_type, bandit_algorithm, K)
+        (fitness_results[trial], evolvability_results[trial]) = do_trial(fitness_function_name, selection_type, fitness_evals, N, evolvability_type, termination_heuristic, P, N2, M, q_inference_type, bandit_algorithm, K, tournament_size, problem_delta_rate)
     end
 
-    # Write results to file
-    filename = @sprintf("data/%d.dat", job_id)
-    header = @sprintf("fitness_evals-%d+N-%d+evolvability_type-%s+problem-%s+selection_type-%s+N2-%d+M-%d+heuristic-%d+p-%.2f+q-%d+th-%s\n", fitness_evals, N, evolvability_type, fitness_function_name, selection_type, N2, M, termination_heuristic, P, q_inference_type, bandit_algorithm)
-    f = open(filename, "a")
-    write(f, header)
-    for (datum_i, datum) in enumerate(fitness_results)
-        if datum_i != 1
-            write(f, ",")
-        end
-        write(f, @sprintf("%.3f", datum))
-    end
-    write(f, "\n\n")
-    close(f)
+    return fitness_results, evolvability_results
 end
 
 
 #Iterate over combinations of parameter settings; run experiments
-function do_experiments(job_id::Int64, trials::Int64 = 1, fitness_function_name::AbstractString = "simple")
+function do_experiments(job_id::Int64, trials::Int64 = 1)
     filename = @sprintf("data/%d.dat", job_id)
     f = open(filename, "w")
     close(f)
 
-    # Parameters to change 1
-    fitness_evalss = [500, 1000] # 5000, 10000
-    Ns = [2, 50] # 2, 50
-    selection_types = ["fitness", "kalman"] # fitness, point, kalman, particle
-    evolvability_types = ["std"] # std, maximum
+    fitness_function_name = rand(["simple", "reisinger", "turney", "lipson"])
+    fitness_evals         = rand(1000:500:10000)
+    N                     = rand(2:2:100)
+    tournament_size       = rand(2:2:N)
+    problem_delta_rate    = rand() * 2
 
-    for selection_type in selection_types
-        # Default values. Do not change.
-        termination_heuristics = [0]; Ks = [1]; Ps = [1.0]
-        bandit_algorithms = ["round robin"]
-        q_inference_types = [0]
-        N2s = [1]; Ms = [1]
+    (base_fitness_results, base_evolvability_results) = do_experiment(fitness_function_name, trials, "fitness", fitness_evals, N, "std", "none", 0.0, 0, 0, "none", "round robin", 1, tournament_size, problem_delta_rate)
 
-        # Parameters to change 2
-        if selection_type != "fitness"
-            termination_heuristics = [0, 1]
-            Ks = [3]
-            Ps = [0.9]
-        end
-        if selection_type == "point"
-            N2s = [1, 10]
-            Ms = [5, 50]
-        elseif selection_type == "kalman"
-            q_inference_types = [1]
-            bandit_algorithms = ["round robin"]
-        elseif selection_type == "particle"
-            q_inference_types = [1, 2]
-            bandit_algorithms = ["round robin"]
-        end
+    for selection_type in ["point", "kalman", "particle"]
 
-        parameters = product(fitness_evalss, Ns, evolvability_types, termination_heuristics, Ks, Ps, bandit_algorithms, q_inference_types, N2s, Ms)
-        for (fitness_evals, N, evolvability_type, heuristic, K, P, bandit_algorithm, q_inference_type, N2, M) in parameters
-            do_experiment(job_id, fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, heuristic, P, N2*N, M, q_inference_type, bandit_algorithm, K)
-        end
+        evolvability_type = rand(["std", "maximum"])
+        termination_heuristic = rand(["none", "halfway", "relative"])
+        K = rand(2:5)
+        N2 = rand(1:10)
+        M = rand(5:50)
+        P = 0.6 + 0.4 * rand()
+        q_inference_type = rand(["ML", "mean_posterior"])
+        bandit_algorithm = "round robin"
+
+        (fitness_results, evolvability_results) = do_experiment(fitness_function_name, trials, selection_type, fitness_evals, N, evolvability_type, termination_heuristic, P, N2*N, M, q_inference_type, bandit_algorithm, K, tournament_size, problem_delta_rate)
+        relative_fitness_results = fitness_results ./ base_fitness_results - 1.0
+        relative_evolvability_results = evolvability_results ./ base_evolvability_results - 1.0
+
+        result_string = @sprintf("%s, %d, %d, %d, %f, %s, %s, %s, %d, %d, %d, %f, %s, %s, %f\n", fitness_function_name, fitness_evals, N, tournament_size, problem_delta_rate, selection_type, evolvability_type, termination_heuristic, K, N2, M, P, q_inference_type, bandit_algorithm, mean(relative_fitness_results))
+        f = open(filename, "a")
+        write(f, result_string)
+        close(f)
 
     end # End of selection type loop
 end
 
 
-if length(ARGS) > 2
-    do_experiments(parse(Int64, ARGS[1]), parse(Int64, ARGS[2]), ARGS[3])
-elseif length(ARGS) > 1
+if length(ARGS) > 1
     do_experiments(parse(Int64, ARGS[1]), parse(Int64, ARGS[2]))
 elseif length(ARGS) > 0
     do_experiments(parse(Int64, ARGS[1]))
 else
-    println("Provide job ID, and optionally the number of trials and the fitness function name")
+    println("Provide job ID, and optionally the number of trials")
 end
 
 
