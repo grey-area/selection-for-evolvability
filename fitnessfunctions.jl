@@ -7,6 +7,12 @@ import Base.==
 abstract Individual
 abstract FitnessFunction
 
+#=
+TODO
+- change lipson, remove 8x8 layer
+- change way mirrored mutations are calculated to match description in thesis
+=#
+
 
 # Simulated binary crossover with n=2
 function cross_float(v1::Float64, v2::Float64, lower_limit::Float64 = -Inf, upper_limit::Float64 = Inf)
@@ -62,7 +68,7 @@ function crossover(p1::SimpleIndividual, p2::SimpleIndividual)
     return SimpleIndividual(c1f, c1e), SimpleIndividual(c2f, c2e)
 end
 
-function delta_fitness_function!(fitness_function::SimpleFitnessFunction, problem_delta_rate::Float64)
+function delta_fitness_function!(fitness_function::SimpleFitnessFunction, problem_delta_rate::Float64, problem_delta_rate2::Float64)
 end
 
 function evaluate_fitness(individual::SimpleIndividual, fitness_function::SimpleFitnessFunction)
@@ -73,38 +79,38 @@ end
 
 
 
-type ReisingerIndividual <: Individual
+type MaskIndividual <: Individual
     bitstring::Array{Int64,1}
     mutation_mask::Array{Int64,1}
 end
 
-ReisingerIndividual() = ReisingerIndividual(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100))
-Base.copy(i::ReisingerIndividual) = ReisingerIndividual(copy(i.bitstring), copy(i.mutation_mask))
+MaskIndividual() = MaskIndividual(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100))
+Base.copy(i::MaskIndividual) = MaskIndividual(copy(i.bitstring), copy(i.mutation_mask))
 
-type ReisingerFitnessFunction <: FitnessFunction
+type MaskFitnessFunction <: FitnessFunction
     bitstring::Array{Int64,1}
     mutation_mask::Array{Int64,1}
     implements_crossover::Bool
 end
 
-ReisingerFitnessFunction() = ReisingerFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100), true)
+MaskFitnessFunction() = MaskFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(Distributions.Bernoulli(0.5), 100), true)
 
-function reisinger_changes(individual::Union{ReisingerIndividual, ReisingerFitnessFunction}, mutation_rate::Float64)
+function mask_changes(individual::Union{MaskIndividual, MaskFitnessFunction}, mutation_rate::Float64, mutation_rate2)
     mutations = rand(Distributions.Bernoulli(mutation_rate), 100)
     masked_mutations = mutations & individual.mutation_mask
     new_bitstring = individual.bitstring $ masked_mutations
-    meta_mutations = rand(Distributions.Bernoulli(0.5*mutation_rate), 100)
+    meta_mutations = rand(Distributions.Bernoulli(mutation_rate2), 100)
     new_mutation_mask = individual.mutation_mask $ meta_mutations
     return new_bitstring, new_mutation_mask
 end
 
-function mutated_copy(individual::ReisingerIndividual)
+function mutated_copy(individual::MaskIndividual)
     mutation_rate = 0.01
-    new_bitstring, new_mutation_mask = reisinger_changes(individual, mutation_rate)
-    return ReisingerIndividual(new_bitstring, new_mutation_mask)
+    new_bitstring, new_mutation_mask = mask_changes(individual, mutation_rate, 0.5*mutation_rate)
+    return MaskIndividual(new_bitstring, new_mutation_mask)
 end
 
-function crossover(p1::ReisingerIndividual, p2::ReisingerIndividual)
+function crossover(p1::MaskIndividual, p2::MaskIndividual)
     c1b = copy(p1.bitstring); c1m = copy(p1.mutation_mask); c2b = copy(p2.bitstring); c2m = copy(p2.mutation_mask)
 
     if rand() < 0.5
@@ -113,16 +119,17 @@ function crossover(p1::ReisingerIndividual, p2::ReisingerIndividual)
         c1m, c2m = cross_array(c1m, c2m)
     end
 
-    return ReisingerIndividual(c1b, c1m), ReisingerIndividual(c2b, c2m)
+    return MaskIndividual(c1b, c1m), MaskIndividual(c2b, c2m)
 end
 
-function delta_fitness_function!(fitness_function::ReisingerFitnessFunction, problem_delta_rate::Float64)
+function delta_fitness_function!(fitness_function::MaskFitnessFunction, problem_delta_rate::Float64, problem_delta_rate2::Float64)
     mutation_rate = 0.01 * problem_delta_rate
-    fitness_function.bitstring, fitness_function.mutation_mask = reisinger_changes(fitness_function, mutation_rate)
+    mutation_rate2 = 0.5 * 0.01 * problem_delta_rate2
+    fitness_function.bitstring, fitness_function.mutation_mask = mask_changes(fitness_function, mutation_rate, mutation_rate2)
 end
 
-function evaluate_fitness(individual::ReisingerIndividual, fitness_function::ReisingerFitnessFunction)
-    return mean(individual.bitstring .== fitness_function.bitstring)
+function evaluate_fitness(individual::MaskIndividual, fitness_function::MaskFitnessFunction)
+    return 100.0 * mean(individual.bitstring .== fitness_function.bitstring)
 end
 
 
@@ -130,42 +137,43 @@ end
 
 
 
-type TurneyIndividual <: Individual
+type SymmetryIndividual <: Individual
     bitstring::Array{Int64,1}
     mirrored_probability::Float64
 end
 
-TurneyIndividual() = TurneyIndividual(rand(Distributions.Bernoulli(0.5), 100), rand())
-Base.copy(i::TurneyIndividual) = TurneyIndividual(copy(i.bitstring), i.mirrored_probability)
+SymmetryIndividual() = SymmetryIndividual(rand(Distributions.Bernoulli(0.5), 100), rand())
+Base.copy(i::SymmetryIndividual) = SymmetryIndividual(copy(i.bitstring), i.mirrored_probability)
 
-type TurneyFitnessFunction <: FitnessFunction
+type SymmetryFitnessFunction <: FitnessFunction
     bitstring::Array{Int64,1}
     mirrored_probability::Float64
     implements_crossover::Bool
 end
 
-TurneyFitnessFunction() = TurneyFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(), true)
+SymmetryFitnessFunction() = SymmetryFitnessFunction(rand(Distributions.Bernoulli(0.5), 100), rand(), true)
 
-function turney_changes(individual::Union{TurneyIndividual, TurneyFitnessFunction}, mutation_rate::Float64)
+function symmetry_changes(individual::Union{SymmetryIndividual, SymmetryFitnessFunction}, mutation_rate::Float64, mutation_rate2::Float64)
     mutations = rand(Distributions.Bernoulli(mutation_rate), 100)
     mirrored = rand() < individual.mirrored_probability
     if mirrored
+        mutations[51:end] = 0
         mutations = mutations $ reverse(mutations)
     end
     new_bitstring = individual.bitstring $ mutations
 
-    meta_mutation = 10.0 * mutation_rate * (rand() - 0.5)
+    meta_mutation = 10.0 * mutation_rate2 * (rand() - 0.5)
     new_mirrored_probability = max(min(individual.mirrored_probability + meta_mutation, 1.0), 0.0)
     return new_bitstring, new_mirrored_probability
 end
 
-function mutated_copy(individual::TurneyIndividual)
+function mutated_copy(individual::SymmetryIndividual)
     mutation_rate = 0.01
-    new_bitstring, new_mirrored_probability = turney_changes(individual, mutation_rate)
-    return TurneyIndividual(new_bitstring, new_mirrored_probability)
+    new_bitstring, new_mirrored_probability = symmetry_changes(individual, mutation_rate, mutation_rate)
+    return SymmetryIndividual(new_bitstring, new_mirrored_probability)
 end
 
-function crossover(p1::TurneyIndividual, p2::TurneyIndividual)
+function crossover(p1::SymmetryIndividual, p2::SymmetryIndividual)
     c1b = copy(p1.bitstring); c1m = p1.mirrored_probability; c2b = copy(p2.bitstring); c2m = p2.mirrored_probability
 
     if rand() < 0.5
@@ -174,16 +182,17 @@ function crossover(p1::TurneyIndividual, p2::TurneyIndividual)
         c1m, c2m = cross_float(c1m, c2m, 0.0, 1.0)
     end
 
-    return TurneyIndividual(c1b, c1m), TurneyIndividual(c2b, c2m)
+    return SymmetryIndividual(c1b, c1m), SymmetryIndividual(c2b, c2m)
 end
 
-function delta_fitness_function!(fitness_function::TurneyFitnessFunction, problem_delta_rate::Float64)
-    mutation_rate = 0.01
-    fitness_function.bitstring, fitness_function.mirrored_probability = turney_changes(fitness_function, mutation_rate)
+function delta_fitness_function!(fitness_function::SymmetryFitnessFunction, problem_delta_rate::Float64, problem_delta_rate2::Float64)
+    mutation_rate = 0.01 * problem_delta_rate
+    mutation_rate2 = 0.01 * problem_delta_rate2
+    fitness_function.bitstring, fitness_function.mirrored_probability = symmetry_changes(fitness_function, mutation_rate, mutation_rate2)
 end
 
-function evaluate_fitness(individual::TurneyIndividual, fitness_function::TurneyFitnessFunction)
-    return mean(individual.bitstring .== fitness_function.bitstring)
+function evaluate_fitness(individual::SymmetryIndividual, fitness_function::SymmetryFitnessFunction)
+    return 100.0 * mean(individual.bitstring .== fitness_function.bitstring)
 end
 
 
@@ -191,17 +200,16 @@ end
 
 
 type LipsonIndividual <: Individual
-    w1::Array{Int64, 2}
     w2::Array{Int64, 2}
     w3::Array{Int64, 2}
     w4::Array{Int64, 2}
 end
 
 function LipsonIndividual()
-    return LipsonIndividual(rand(-2:2, 8, 9), rand(-2:2, 4, 9), rand(-2:2, 2, 5), rand(-2:2, 1, 3))
+    return LipsonIndividual(rand(-2:2, 4, 9), rand(-2:2, 2, 5), rand(-2:2, 1, 3))
 end
-Base.copy(network::LipsonIndividual) = LipsonIndividual(copy(network.w1), copy(network.w2), copy(network.w3), copy(network.w4))
-==(n1::LipsonIndividual, n2::LipsonIndividual) = (n1.w1 == n2.w1 && n1.w2 == n2.w2 && n1.w3 == n2.w3 && n1.w4 == n2.w4)
+Base.copy(network::LipsonIndividual) = LipsonIndividual(copy(network.w2), copy(network.w3), copy(network.w4))
+==(n1::LipsonIndividual, n2::LipsonIndividual) = (n1.w2 == n2.w2 && n1.w3 == n2.w3 && n1.w4 == n2.w4)
 
 type LipsonFitnessFunction <: FitnessFunction
     inputs::Array{Array{Int64,1}, 1}
@@ -267,14 +275,6 @@ function add_remove_connection(network::LipsonIndividual, add::Bool)
     if rand() < 0.2
         indices = Tuple{Int64,Int64,Int64}[]
         sizehint!(indices, 121)
-        for i in 1:8, j in 1:9
-            if (network.w1[i, j] != 0) $ add
-                push!(indices, (1,i,j))
-                if !add
-                    inc_dec(network.w1, i, j)
-                end
-            end
-        end
         for i in 1:4, j in 1:9
             if (network.w2[i, j] != 0) $ add
                 push!(indices, (2,i,j))
@@ -302,9 +302,7 @@ function add_remove_connection(network::LipsonIndividual, add::Bool)
 
         if length(indices) > 0
             to_remove = rand(indices)
-            if to_remove[1] == 1
-                layer = network.w1
-            elseif to_remove[1] == 2
+            if to_remove[1] == 2
                 layer = network.w2
             elseif to_remove[1] == 3
                 layer = network.w3
@@ -332,9 +330,9 @@ function mutated_copy(n::LipsonIndividual)
     return network
 end
 
-function delta_fitness_function!(fitness_function::LipsonFitnessFunction, problem_delta_rate::Float64)
+function delta_fitness_function!(fitness_function::LipsonFitnessFunction, problem_delta_rate::Float64, problem_delta_rate2::Float64)
     threshold = 1/(1+exp(-problem_delta_rate)) - 0.5
-    if rand() < threshold
+    if rand() < threshold || problem_delta_rate2 < problem_delta_rate
         fitness_function.task = 3 - fitness_function.task
     end
 end
@@ -343,7 +341,7 @@ function evaluate(network::LipsonIndividual, input::Array{Int64, 1})
     lambda = 20
     output = copy(input)
 
-    for layer in Any[network.w1, network.w2, network.w3, network.w4]
+    for layer in Any[network.w2, network.w3, network.w4]
         push!(output, 1.0)
         output = tanh(lambda * layer * output)
     end
@@ -351,15 +349,15 @@ function evaluate(network::LipsonIndividual, input::Array{Int64, 1})
     return output[1] > 0
 end
 
-lipson_dict = Dict{Tuple{Array{Int64, 2},Array{Int64, 2},Array{Int64, 2},Array{Int64, 2}}, Float64}()
+lipson_dict = Dict{Tuple{Array{Int64, 2},Array{Int64, 2},Array{Int64, 2}}, Float64}()
 
 function evaluate_fitness(network::LipsonIndividual, fitness_function::LipsonFitnessFunction)
-    tup = (network.w1, network.w2, network.w3, network.w4)
+    tup = (network.w2, network.w3, network.w4)
 
     if haskey(lipson_dict, tup)
         return lipson_dict[tup]::Float64
     else
-        res = convert(Float64, sum(Bool[evaluate(network, input) == fitness_function.targets[input_i, fitness_function.task] for (input_i, input) in enumerate(fitness_function.inputs)]))
+        res = 100.0 * convert(Float64, mean(Bool[evaluate(network, input) == fitness_function.targets[input_i, fitness_function.task] for (input_i, input) in enumerate(fitness_function.inputs)]))
         lipson_dict[tup] = res
         return res
     end

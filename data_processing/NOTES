@@ -1,0 +1,38 @@
+./1_split_data_by_ff_and_method splits the data in 'data/' into 12 files, one for each (fitness function, method) pair
+
+----------------------------
+
+./2_train_test_type_split creates a separate data file for each of recording fitness and evolvability, for each of selecting for fitness vs selecting for evolvability, selecting for fitness vs PTS, selecting for evolvability vs PTS, and for each of training and testing data.
+It also changes the encoding of the categorical variables.
+0 = 'std', 1 = 'maximum' for evolvability type
+The next column is a 1 if any termination heuristic is used at all.
+The next column is a 1 if the termination heuristic used is 'relative'.
+
+The second to last column is the result.
+The last column is the sign of the result.
+
+----------------------------
+
+./3_decision_trees creates decision trees, exports them to the .model files, and creates figures of the trees in .dot files
+
+./3_2_convert_trees creates pdfs and puts them in the thesis directory
+
+----------------------------
+
+./4_classify_and_inference
+
+For each fitness function (4), for each selection method (3), for each of recording fitness and evolvability (2), and for each of selecting for fitness vs selecting for evo, selecting for fitness vs PTS, and selecting for evo vs PTS (3), (72 total), record the following:
+
+- The proportion of recorded values which are positive (training and testing data combined)
+For the data classified as positive and negative from the testing data:
+- The HDI min and max, mean, mode, and empirical mean for positive and negative (10 numbers)
+- The probability that the positives are actually positive
+- The probability that the positives are greater than the negatives
+- A confusion matrix (4 numbers)
+(17 numbers, though probably leave off the posterior mean, so 16. For 72 experiments = 1152 numbers)
+Takes about 1 hour 48 to run on a single core, 30 minutes if parallelized across 4 cores.
+
+
+./4_2_grouped_inference
+
+Does Bayesian inference on the stats of *all* of the EGS vs EGS-AR data, not grouped by positive or negative decision tree classification. Want to know if the mean value is positive.

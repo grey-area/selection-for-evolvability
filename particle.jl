@@ -1,3 +1,5 @@
+using StatsBase
+
 type Particle
     num_particles::Int64
     K::Int64
@@ -14,6 +16,10 @@ function init_particle(num_particles::Int64 = 1000, K::Int64 = 2)
     return particle
 end
 
+function filter_sample(particle::Particle)
+    return particle.xs[:,sample(1:particle.num_particles, WeightVec(exp(particle.weights)))]
+end
+
 function filter_predict(particle::Particle, ML_q::Float64, q_inference_type::AbstractString, evolvability_type::AbstractString, population_index::Int64)
     q = 1.0
     if q_inference_type == "ML"
@@ -21,9 +27,11 @@ function filter_predict(particle::Particle, ML_q::Float64, q_inference_type::Abs
     end
 
     if q_inference_type != "mean_posterior"
-        particle.xs[population_index, :] += randn(1, particle.num_particles) * √q
+        particle.xs[population_index, :] += randn(1, particle.num_particles) * √(0.9*q)
+        particle.xs += randn(particle.K, particle.num_particles) * √(0.1*q)
     else
-        particle.xs[population_index, :] += randn(1, particle.num_particles) .* √particle.qs'
+        particle.xs[population_index, :] += randn(1, particle.num_particles) .* √(0.9*particle.qs)'
+        particle.xs += randn(particle.K, particle.num_particles) .* √(0.1*particle.qs)'
         particle.qs += randn(particle.num_particles) * 0.05
         particle.qs[particle.qs .< 0] = 0.0001
     end
@@ -56,12 +64,15 @@ function filter_update(particle::Particle, obs1::Array{Float64,1}, sample_sizes:
             thetas[thetas .< 0] = 0.0000001
             particle.weights += squeeze(-obs ./ thetas +(-k) * log(thetas), 1)
         elseif evolvability_type == "std"
-            #particle.weights += squeeze(-(obs ./ particle.xs[population_index, :]).^2 * (1/pi + (sample_size-2)/2) - (sample_size+1) * log(particle.xs[population_index, :]), 1)
-            particle.weights += squeeze(-(sample_size - 2 + 1/(pi-2)) * (obs ./ particle.xs[population_index, :] .- 1).^2 - log(particle.xs[population_index, :]), 1)
+            particle.weights += squeeze(log(2) - log(obs) .+ (sample_size-1).*(log(gamma(sample_size/2)) + log(obs) .- log(particle.xs[population_index,:])) - sample_size*log(gamma((sample_size-1)/2)) - (gamma(sample_size/2)/gamma((sample_size-1)/2))^2 * (obs ./ particle.xs[population_index, :]).^2, 1)
+
+            #particle.weights += squeeze(-(sample_size - 2 + 1/(pi-2)) * (obs ./ particle.xs[population_index, :] .- 1).^2 - log(particle.xs[population_index, :]), 1)
         else
-            sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs[population_index, :]
-            particle.weights += squeeze(- (obs - particle.xs[population_index, :]) .^ 2 ./ (2 * sigmas .^ 2) - log(sigmas), 1)
-            #particle.weights += squeeze(-(obs - particle.xs[population_index, :]) .^ 2 ./ (2 * sigmas .^ 2) - log(particle.xs[population_index, :]), 1)
+            p = obs ./ (sqrt(2*pi) .* particle.xs[population_index,:])
+            particle.weights += squeeze(- p.^2 + log(erfc(-p)) .- log(particle.xs[population_index, :]) - log(sqrt(2) * pi), 1)
+
+            #sigmas = (0.125 + 1.29 * (sample_size-1)^(-0.73)) * particle.xs[population_index, :]
+            #particle.weights += squeeze(- (obs - particle.xs[population_index, :]) .^ 2 ./ (2 * sigmas .^ 2) - log(sigmas), 1)
         end
 
         particle.weights = normalize_weights(particle.weights)
