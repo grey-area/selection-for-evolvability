@@ -4,7 +4,8 @@ include("particle.jl")
 include("particle2.jl")
 
 # First, single variable
-K = 3
+K = 2
+q_inference_type = "ML"
 evolvability_type = "std"
 
 kalman1 = init_kalman(K)
@@ -43,20 +44,20 @@ function predict()
     println("Predict\n")
 
     for population_index in 1:K
-        filter_predict(kalman1, 0.0, 0, evolvability_type, population_index)
-        filter_predict(particle1, 0.0, 0, evolvability_type, population_index)
+        filter_predict(kalman1, 0.1, q_inference_type, evolvability_type, population_index)
+        filter_predict(particle1, 0.1, q_inference_type, evolvability_type, population_index)
     end
 
-    kalman2_pred(kalman2, 0.0, 0)
-    particle2_pred(particle2, 0.0, 0, 0)
+    kalman2_pred(kalman2, 0.1, 1)
+    particle2_pred(particle2, 0.1, 1, 0)
 end
 
 function update()
     println("Update\n")
 
-    K1 = K-2
-    sigma = 110
-    number_of_obs = 10
+    K1 = K
+    sigma = 30
+    number_of_obs = 1
     sample_size = 2
     sample_sizes = ones(Int64, number_of_obs) * sample_size
     if evolvability_type == "std"
@@ -69,7 +70,7 @@ function update()
         observations =squeeze(var(sqrt(sigma) * randn(K1, number_of_obs, sample_size), 3), 3)
     end
 
-    #println(observations)
+    println(size(observations))
 
     for population_index in 1:K1
         obs = squeeze(observations[population_index, :], 1)
@@ -77,20 +78,32 @@ function update()
         filter_update(particle1, obs, sample_sizes, evolvability_type, population_index)
     end
 
-    #kalman2_update(kalman2, observations, sample_size, evolvability_type)
-    #particle2_update(particle2, observations, sample_size, evolvability_type, 0)
-    #particle2_resample(particle2)
+    kalman2_update(kalman2, observations, sample_size, evolvability_type)
+    particle2_update(particle2, observations, sample_size, evolvability_type, 0)
+    particle2_resample(particle2)
 
 end
+
+using Distributions
 
 for i in 1:1000
     print_filters()
     predict()
     print_filters()
     update()
-    if mod(i, 10) == 0
-        filter_duplicate(kalman1, 1)
-        filter_duplicate(particle1, 1)
-        println("\n\n\n\n\n\n\n\n\n\n")
-    end
+
+    dist = MvNormal(kalman1.xs, kalman1.ps)
+    samples = rand(dist, 10000)
+    println("1")
+    println(std(samples))
+    samples[samples .< 0] = 0.0001
+    println("2")
+    println(std(samples))
+
+
+    #if mod(i, 10) == 0
+    #    filter_duplicate(kalman1, 1)
+    #    filter_duplicate(particle1, 1)
+    #    println("\n\n\n\n\n\n\n\n\n\n")
+#end
 end

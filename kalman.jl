@@ -10,6 +10,11 @@ function init_kalman(K::Int64 = 2)
     return Kalman([10.0 for i in 1:K], eye(K) * 100.0, K)
 end
 
+function filter_sample(kalman::Kalman)
+    dist = MultivariateNormal(kalman.xs, kalman.ps + 0.01 * eye(kalman.K))
+    return rand(dist)
+end
+
 # TODO two kinds of q
 function filter_predict(kalman::Kalman, ML_q::Float64, q_inference_type::AbstractString, evolvability_type::AbstractString, population_index::Int64)
     q = 1.0
@@ -17,7 +22,8 @@ function filter_predict(kalman::Kalman, ML_q::Float64, q_inference_type::Abstrac
         q = ML_q
     end
     #kalman.ps += eye(kalman.K) * q
-    kalman.ps[population_index, population_index] += q
+    kalman.ps[population_index, population_index] += 0.9 * q
+    kalman.ps += 0.1 * q * eye(kalman.K)
 end
 
 # TODO something with n, should be an array
@@ -27,14 +33,25 @@ function filter_update(kalman::Kalman, obs::Array{Float64,1}, sample_sizes::Arra
         if evolvability_type == "variance"
             r = 2(kalman.xs[population_index]^2) / Float64(sample_size)  # Observation variance
         elseif evolvability_type == "std"
-            r = 1.0/(2.0 * (sample_size-2.0+1.0/(pi-2.0))) * kalman.xs[population_index]^2
+            r = kalman.xs[population_index]^2 / 2 * ( (sample_size - 1) * (gamma((sample_size-1)/2)/gamma(sample_size/2))^2 - 2)
+            #r = 1.0/(2.0 * (sample_size-2.0+1.0/(pi-2.0))) * kalman.xs[population_index]^2
         else # If we observe the maximum
-            r = (0.125 + 1.29 * Float64(sample_size-1)^(-0.73))^2 * kalman.xs[population_index]^2
+            r = (pi-1) * kalman.xs[population_index] ^ 2
+            #r = (0.125 + 1.29 * Float64(sample_size-1)^(-0.73))^2 * kalman.xs[population_index]^2
         end
+
+        r = r + 1e-40
 
         y = ob - kalman.xs[population_index]
         s = kalman.ps[population_index, population_index] + r
         k = kalman.ps[:, population_index] * 1/s
+
+        #=
+        print("s: ")
+        println(s)
+        print("r: ")
+        println(r)
+        =#
 
         # TODO check
         kalman.xs += k * y
